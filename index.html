@@ -169,6 +169,36 @@
   .modal button.primary { background: #2c6ef2; color: white; }
   .modal button.secondary { background: #e0e0e0; color: #333; }
   .modal button.danger { background: #dc3545; color: white; }
+  .modal .edit-fields {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .modal .edit-fields label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    color: #555;
+    gap: 4px;
+  }
+  .modal .edit-fields select {
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .modal .range-display {
+    font-weight: 600;
+    color: #2c6ef2;
+    margin: 8px 0;
+  }
+  .modal .section-label {
+    font-size: 12px;
+    color: #555;
+    margin-bottom: 4px;
+    display: block;
+  }
 </style>
 </head>
 <body>
@@ -196,8 +226,9 @@
 </div>
 
 <div class="hint">
-  <strong>사용법:</strong> 셀을 클릭하거나 드래그해서 세션 범위를 선택한 후, 세션명을 입력하세요.
-  이미 입력된 세션은 클릭 시 수정/삭제할 수 있습니다. 세션명 옆 괄호 안 숫자는 자동 계산된 분(分)입니다.
+  <strong>사용법:</strong> 빈 셀을 드래그해서 세션 범위를 선택한 후 세션명을 입력하세요.
+  <br><strong>수정:</strong> 이미 입력된 세션을 클릭하면 이름뿐 아니라 <b>시작/종료 시간, 열</b>까지 모두 변경할 수 있습니다.
+  괄호 안 숫자는 자동 계산된 분(分)입니다.
 </div>
 
 <div class="table-wrap">
@@ -210,8 +241,25 @@
 <div class="modal-backdrop" id="modal">
   <div class="modal">
     <h3 id="modalTitle">세션 입력</h3>
-    <div class="row" id="modalRange"></div>
-    <input type="text" id="sessionInput" placeholder="예: 서류함 숙지" />
+    <div>
+      <label class="section-label">세션명</label>
+      <input type="text" id="sessionInput" placeholder="예: 서류함 숙지" />
+    </div>
+    <div class="edit-fields" id="editFields" style="display:none">
+      <label>
+        열
+        <select id="colSelect"></select>
+      </label>
+      <label>
+        시작
+        <select id="startSelect"></select>
+      </label>
+      <label>
+        종료
+        <select id="endSelect"></select>
+      </label>
+    </div>
+    <div class="range-display" id="modalRange"></div>
     <div class="actions">
       <button class="danger" id="modalDelete" style="display:none">삭제</button>
       <button class="secondary" id="modalCancel">취소</button>
@@ -374,13 +422,54 @@ function highlightRange(a, b, col) {
   });
 }
 
-function rangeOverlapsSession(lo, hi, col) {
+function rangeOverlapsSession(lo, hi, col, excludeId) {
   for (const id in state.sessions) {
+    if (id === excludeId) continue;
     const s = state.sessions[id];
     if (s.col !== col) continue;
     if (!(hi < s.start || lo > s.end)) return true;
   }
   return false;
+}
+
+function populateRangeSelects(currentCol, currentStart, currentEnd) {
+  const colSel = $('colSelect');
+  colSel.innerHTML = '';
+  for (let c = 0; c < state.cols; c++) {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = state.colNames[c] || `${c+1}열`;
+    if (c === currentCol) opt.selected = true;
+    colSel.appendChild(opt);
+  }
+  fillSlotSelect($('startSelect'), currentStart, 0);
+  fillSlotSelect($('endSelect'), currentEnd, 5);
+}
+
+function fillSlotSelect(sel, currentIdx, offsetMin) {
+  sel.innerHTML = '';
+  for (let i = 0; i < state.slots.length; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = formatTime(state.slots[i] + offsetMin);
+    if (i === currentIdx) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function updateModalRangeDisplay() {
+  const start = +$('startSelect').value;
+  const end = +$('endSelect').value;
+  if (end < start) {
+    $('modalRange').textContent = '⚠️ 종료 시간이 시작보다 빠릅니다';
+    $('modalRange').style.color = '#dc3545';
+    return;
+  }
+  const startMin = state.slots[start];
+  const endMin = state.slots[end] + 5;
+  const total = endMin - startMin;
+  $('modalRange').textContent = `${formatTime(startMin)} ~ ${formatTime(endMin)}  (총 ${total}분)`;
+  $('modalRange').style.color = '#2c6ef2';
 }
 
 function openNewModal(start, end, col) {
@@ -390,8 +479,10 @@ function openNewModal(start, end, col) {
   const endMin = state.slots[end] + 5;
   const total = endMin - startMin;
   $('modalRange').textContent = `${formatTime(startMin)} ~ ${formatTime(endMin)}  (총 ${total}분)`;
+  $('modalRange').style.color = '#2c6ef2';
   $('sessionInput').value = '';
   $('modalDelete').style.display = 'none';
+  $('editFields').style.display = 'none';
   modal.classList.add('show');
   setTimeout(() => $('sessionInput').focus(), 10);
 
@@ -412,19 +503,30 @@ function openEditModal(id) {
   if (!s) return;
   const modal = $('modal');
   $('modalTitle').textContent = '세션 수정';
-  const startMin = state.slots[s.start];
-  const endMin = state.slots[s.end] + 5;
-  const total = endMin - startMin;
-  $('modalRange').textContent = `${formatTime(startMin)} ~ ${formatTime(endMin)}  (총 ${total}분)`;
   $('sessionInput').value = s.name;
   $('modalDelete').style.display = 'inline-block';
+  $('editFields').style.display = 'flex';
+  populateRangeSelects(s.col, s.start, s.end);
+  updateModalRangeDisplay();
+
+  $('startSelect').onchange = updateModalRangeDisplay;
+  $('endSelect').onchange = updateModalRangeDisplay;
+  $('colSelect').onchange = updateModalRangeDisplay;
+
   modal.classList.add('show');
   setTimeout(() => $('sessionInput').focus(), 10);
 
   $('modalSave').onclick = () => {
     const name = $('sessionInput').value.trim();
     if (!name) { alert('세션명을 입력하세요.'); return; }
-    state.sessions[id].name = name;
+    const newCol = +$('colSelect').value;
+    const newStart = +$('startSelect').value;
+    const newEnd = +$('endSelect').value;
+    if (newEnd < newStart) { alert('종료 시간이 시작 시간보다 빠릅니다.'); return; }
+    if (rangeOverlapsSession(newStart, newEnd, newCol, id)) {
+      alert('이미 다른 세션이 있는 영역과 겹칩니다.'); return;
+    }
+    state.sessions[id] = { col: newCol, start: newStart, end: newEnd, name };
     closeModal();
     render();
     autosave();
