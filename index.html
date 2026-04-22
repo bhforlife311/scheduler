@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>5분 단위 시간표 편집기</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    margin: 0;
+    padding: 20px;
+    background: #f5f6f8;
+    color: #222;
+  }
+  h1 { margin: 0 0 16px; font-size: 20px; }
+  .controls {
+    background: #fff;
+    padding: 16px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+  }
+  .controls label {
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    color: #555;
+    gap: 4px;
+  }
+  .controls input, .controls select {
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .controls button {
+    padding: 8px 14px;
+    border: none;
+    border-radius: 4px;
+    background: #2c6ef2;
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .controls button.secondary {
+    background: #6c757d;
+  }
+  .controls button.danger {
+    background: #dc3545;
+  }
+  .hint {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .table-wrap {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    overflow: auto;
+    max-height: calc(100vh - 260px);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid #d5d7dc;
+    padding: 4px 6px;
+    text-align: center;
+    vertical-align: middle;
+    height: 26px;
+  }
+  thead th {
+    background: #eef1f6;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    font-weight: 600;
+  }
+  thead th input.col-name {
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: center;
+    font-weight: 600;
+    font-size: 13px;
+    outline: none;
+  }
+  td.time {
+    background: #fafbfc;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    width: 110px;
+    color: #555;
+  }
+  td.session {
+    cursor: pointer;
+    user-select: none;
+    min-width: 140px;
+  }
+  td.session.empty:hover {
+    background: #f0f7ff;
+  }
+  td.session.filled {
+    background: #fff8e1;
+  }
+  td.session.selected {
+    background: #c7dcff !important;
+    outline: 2px solid #2c6ef2;
+    outline-offset: -2px;
+  }
+  td.session .label {
+    white-space: pre-wrap;
+    word-break: keep-all;
+    line-height: 1.3;
+  }
+  td.session .mins {
+    font-size: 11px;
+    color: #666;
+    margin-top: 2px;
+  }
+  .modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    width: 360px;
+    max-width: 90vw;
+  }
+  .modal h3 { margin: 0 0 12px; font-size: 16px; }
+  .modal .row { margin-bottom: 10px; font-size: 13px; color: #444; }
+  .modal input[type=text] {
+    width: 100%;
+    padding: 8px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  .modal .actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 14px;
+  }
+  .modal button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .modal button.primary { background: #2c6ef2; color: white; }
+  .modal button.secondary { background: #e0e0e0; color: #333; }
+  .modal button.danger { background: #dc3545; color: white; }
+</style>
+</head>
+<body>
+
+<h1>5분 단위 시간표 편집기</h1>
+
+<div class="controls">
+  <label>
+    시작 시간
+    <input type="time" id="startTime" value="09:00" step="300" />
+  </label>
+  <label>
+    종료 시간
+    <input type="time" id="endTime" value="18:00" step="300" />
+  </label>
+  <label>
+    열(일차/트랙) 수
+    <input type="number" id="colCount" value="2" min="1" max="10" style="width:80px" />
+  </label>
+  <button id="buildBtn">표 만들기</button>
+  <button id="exportBtn" class="secondary">CSV 내보내기</button>
+  <button id="saveBtn" class="secondary">저장 (브라우저)</button>
+  <button id="loadBtn" class="secondary">불러오기</button>
+  <button id="clearBtn" class="danger">전체 지우기</button>
+</div>
+
+<div class="hint">
+  <strong>사용법:</strong> 셀을 클릭하거나 드래그해서 세션 범위를 선택한 후, 세션명을 입력하세요.
+  이미 입력된 세션은 클릭 시 수정/삭제할 수 있습니다. 세션명 옆 괄호 안 숫자는 자동 계산된 분(分)입니다.
+</div>
+
+<div class="table-wrap">
+  <table id="schedule">
+    <thead><tr id="theadRow"></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">세션 입력</h3>
+    <div class="row" id="modalRange"></div>
+    <input type="text" id="sessionInput" placeholder="예: 서류함 숙지" />
+    <div class="actions">
+      <button class="danger" id="modalDelete" style="display:none">삭제</button>
+      <button class="secondary" id="modalCancel">취소</button>
+      <button class="primary" id="modalSave">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'scheduler5min_v1';
+
+const state = {
+  start: '09:00',
+  end: '18:00',
+  cols: 2,
+  colNames: [],
+  slots: [],
+  sessions: {},
+};
+
+const $ = id => document.getElementById(id);
+
+function parseTime(t) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+function formatTime(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
+function buildSlots() {
+  const s = parseTime(state.start);
+  const e = parseTime(state.end);
+  const slots = [];
+  for (let t = s; t < e; t += 5) {
+    slots.push(t);
+  }
+  state.slots = slots;
+}
+
+function render() {
+  const thead = $('theadRow');
+  thead.innerHTML = '<th style="width:110px">시간</th>';
+  for (let c = 0; c < state.cols; c++) {
+    const name = state.colNames[c] ?? `${c + 1}일차`;
+    state.colNames[c] = name;
+    const th = document.createElement('th');
+    const inp = document.createElement('input');
+    inp.className = 'col-name';
+    inp.value = name;
+    inp.dataset.col = c;
+    inp.addEventListener('input', (e) => {
+      state.colNames[+e.target.dataset.col] = e.target.value;
+    });
+    th.appendChild(inp);
+    thead.appendChild(th);
+  }
+
+  const tbody = $('tbody');
+  tbody.innerHTML = '';
+  const renderedCells = {};
+
+  for (let r = 0; r < state.slots.length; r++) {
+    const tr = document.createElement('tr');
+    const tmin = state.slots[r];
+    const timeTd = document.createElement('td');
+    timeTd.className = 'time';
+    timeTd.textContent = `${formatTime(tmin)} ~ ${formatTime(tmin + 5)}`;
+    tr.appendChild(timeTd);
+
+    for (let c = 0; c < state.cols; c++) {
+      const key = `${r}_${c}`;
+      if (renderedCells[key]) continue;
+
+      const session = findSessionAt(r, c);
+      if (session) {
+        const td = document.createElement('td');
+        td.className = 'session filled';
+        td.rowSpan = session.end - session.start + 1;
+        td.dataset.col = c;
+        td.dataset.row = session.start;
+        td.dataset.session = session.id;
+        const mins = (session.end - session.start + 1) * 5;
+        td.innerHTML = `<div class="label">${escapeHtml(session.name)}</div><div class="mins">(${mins})</div>`;
+        td.addEventListener('click', () => openEditModal(session.id));
+        tr.appendChild(td);
+        for (let rr = session.start; rr <= session.end; rr++) {
+          renderedCells[`${rr}_${c}`] = true;
+        }
+      } else {
+        const td = document.createElement('td');
+        td.className = 'session empty';
+        td.dataset.col = c;
+        td.dataset.row = r;
+        attachSelectionHandlers(td);
+        tr.appendChild(td);
+      }
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function findSessionAt(row, col) {
+  for (const id in state.sessions) {
+    const s = state.sessions[id];
+    if (s.col === col && row >= s.start && row <= s.end) return { id, ...s };
+  }
+  return null;
+}
+
+let selStart = null, selCol = null, selecting = false;
+
+function attachSelectionHandlers(td) {
+  td.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    selecting = true;
+    selStart = +td.dataset.row;
+    selCol = +td.dataset.col;
+    clearSelection();
+    td.classList.add('selected');
+  });
+  td.addEventListener('mouseenter', () => {
+    if (!selecting) return;
+    if (+td.dataset.col !== selCol) return;
+    highlightRange(selStart, +td.dataset.row, selCol);
+  });
+  td.addEventListener('mouseup', () => {
+    if (!selecting) return;
+    const endRow = +td.dataset.row;
+    selecting = false;
+    const lo = Math.min(selStart, endRow);
+    const hi = Math.max(selStart, endRow);
+    if (rangeOverlapsSession(lo, hi, selCol)) {
+      alert('이미 세션이 있는 영역과 겹칩니다.');
+      clearSelection();
+      return;
+    }
+    openNewModal(lo, hi, selCol);
+  });
+}
+
+document.addEventListener('mouseup', () => { selecting = false; });
+
+function clearSelection() {
+  document.querySelectorAll('td.session.selected').forEach(el => el.classList.remove('selected'));
+}
+
+function highlightRange(a, b, col) {
+  clearSelection();
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  document.querySelectorAll('td.session.empty').forEach(td => {
+    const r = +td.dataset.row, c = +td.dataset.col;
+    if (c === col && r >= lo && r <= hi) td.classList.add('selected');
+  });
+}
+
+function rangeOverlapsSession(lo, hi, col) {
+  for (const id in state.sessions) {
+    const s = state.sessions[id];
+    if (s.col !== col) continue;
+    if (!(hi < s.start || lo > s.end)) return true;
+  }
+  return false;
+}
+
+function openNewModal(start, end, col) {
+  const modal = $('modal');
+  $('modalTitle').textContent = '새 세션 입력';
+  const startMin = state.slots[start];
+  const endMin = state.slots[end] + 5;
+  const total = endMin - startMin;
+  $('modalRange').textContent = `${formatTime(startMin)} ~ ${formatTime(endMin)}  (총 ${total}분)`;
+  $('sessionInput').value = '';
+  $('modalDelete').style.display = 'none';
+  modal.classList.add('show');
+  setTimeout(() => $('sessionInput').focus(), 10);
+
+  $('modalSave').onclick = () => {
+    const name = $('sessionInput').value.trim();
+    if (!name) { alert('세션명을 입력하세요.'); return; }
+    const id = 'ses_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    state.sessions[id] = { col, start, end, name };
+    closeModal();
+    render();
+    autosave();
+  };
+  $('modalCancel').onclick = () => { closeModal(); clearSelection(); };
+}
+
+function openEditModal(id) {
+  const s = state.sessions[id];
+  if (!s) return;
+  const modal = $('modal');
+  $('modalTitle').textContent = '세션 수정';
+  const startMin = state.slots[s.start];
+  const endMin = state.slots[s.end] + 5;
+  const total = endMin - startMin;
+  $('modalRange').textContent = `${formatTime(startMin)} ~ ${formatTime(endMin)}  (총 ${total}분)`;
+  $('sessionInput').value = s.name;
+  $('modalDelete').style.display = 'inline-block';
+  modal.classList.add('show');
+  setTimeout(() => $('sessionInput').focus(), 10);
+
+  $('modalSave').onclick = () => {
+    const name = $('sessionInput').value.trim();
+    if (!name) { alert('세션명을 입력하세요.'); return; }
+    state.sessions[id].name = name;
+    closeModal();
+    render();
+    autosave();
+  };
+  $('modalDelete').onclick = () => {
+    if (confirm('이 세션을 삭제하시겠습니까?')) {
+      delete state.sessions[id];
+      closeModal();
+      render();
+      autosave();
+    }
+  };
+  $('modalCancel').onclick = () => closeModal();
+}
+
+function closeModal() {
+  $('modal').classList.remove('show');
+  clearSelection();
+}
+
+$('sessionInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); $('modalSave').click(); }
+  if (e.key === 'Escape') { e.preventDefault(); $('modalCancel').click(); }
+});
+
+$('buildBtn').onclick = () => {
+  state.start = $('startTime').value;
+  state.end = $('endTime').value;
+  state.cols = Math.max(1, +$('colCount').value || 1);
+  if (parseTime(state.end) <= parseTime(state.start)) {
+    alert('종료 시간이 시작 시간보다 뒤여야 합니다.');
+    return;
+  }
+  const validSessions = {};
+  buildSlots();
+  for (const id in state.sessions) {
+    const s = state.sessions[id];
+    if (s.col < state.cols && s.end < state.slots.length) validSessions[id] = s;
+  }
+  state.sessions = validSessions;
+  while (state.colNames.length < state.cols) state.colNames.push(`${state.colNames.length+1}일차`);
+  state.colNames.length = state.cols;
+  render();
+  autosave();
+};
+
+$('clearBtn').onclick = () => {
+  if (confirm('모든 세션을 삭제하시겠습니까?')) {
+    state.sessions = {};
+    render();
+    autosave();
+  }
+};
+
+$('exportBtn').onclick = () => {
+  const rows = [];
+  const header = ['시작', '종료', ...state.colNames];
+  rows.push(header);
+  const rendered = {};
+  for (let r = 0; r < state.slots.length; r++) {
+    const tmin = state.slots[r];
+    const row = [formatTime(tmin), formatTime(tmin + 5)];
+    for (let c = 0; c < state.cols; c++) {
+      const key = `${r}_${c}`;
+      if (rendered[key]) { row.push(''); continue; }
+      const s = findSessionAt(r, c);
+      if (s) {
+        const mins = (s.end - s.start + 1) * 5;
+        row.push(`${s.name} (${mins})`);
+        for (let rr = s.start; rr <= s.end; rr++) rendered[`${rr}_${c}`] = true;
+      } else {
+        row.push('');
+      }
+    }
+    rows.push(row);
+  }
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `시간표_${state.start.replace(':','')}-${state.end.replace(':','')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+function autosave() {
+  const data = {
+    start: state.start, end: state.end, cols: state.cols,
+    colNames: state.colNames, sessions: state.sessions
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+$('saveBtn').onclick = () => { autosave(); alert('저장되었습니다.'); };
+
+$('loadBtn').onclick = () => {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) { alert('저장된 데이터가 없습니다.'); return; }
+  try {
+    const d = JSON.parse(raw);
+    state.start = d.start; state.end = d.end; state.cols = d.cols;
+    state.colNames = d.colNames || []; state.sessions = d.sessions || {};
+    $('startTime').value = state.start;
+    $('endTime').value = state.end;
+    $('colCount').value = state.cols;
+    buildSlots();
+    render();
+  } catch (e) { alert('불러오기 실패: ' + e.message); }
+};
+
+function init() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try {
+      const d = JSON.parse(raw);
+      state.start = d.start || '09:00';
+      state.end = d.end || '18:00';
+      state.cols = d.cols || 2;
+      state.colNames = d.colNames || [];
+      state.sessions = d.sessions || {};
+      $('startTime').value = state.start;
+      $('endTime').value = state.end;
+      $('colCount').value = state.cols;
+    } catch (e) {}
+  }
+  buildSlots();
+  render();
+}
+
+init();
+</script>
+
+</body>
+</html>
