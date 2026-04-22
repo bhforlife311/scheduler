@@ -14,7 +14,32 @@
     background: #f5f6f8;
     color: #222;
   }
-  h1 { margin: 0 0 16px; font-size: 20px; }
+  h1 { margin: 0 0 8px; font-size: 20px; }
+  .title-bar {
+    background: #fff;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 12px;
+  }
+  .title-bar label {
+    font-size: 12px;
+    color: #555;
+    margin-right: 8px;
+  }
+  .title-bar input {
+    font-size: 18px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: calc(100% - 100px);
+    min-width: 200px;
+  }
+  .title-bar input:focus {
+    outline: none;
+    border-color: #2c6ef2;
+  }
   .controls {
     background: #fff;
     padding: 16px;
@@ -206,6 +231,11 @@
 
 <h1>5분 단위 시간표 편집기</h1>
 
+<div class="title-bar">
+  <label for="scheduleTitle">시간표 제목</label>
+  <input type="text" id="scheduleTitle" placeholder="예: 2026 공무원연금공단 3급승진 1회차" />
+</div>
+
 <div class="controls">
   <label>
     시작 시간
@@ -274,6 +304,7 @@
 const STORAGE_KEY = 'scheduler5min_v1';
 
 const state = {
+  title: '',
   start: '09:00',
   end: '18:00',
   cols: 2,
@@ -610,13 +641,15 @@ $('exportBtn').onclick = () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `시간표_${state.start.replace(':','')}-${state.end.replace(':','')}.csv`;
+  const baseName = state.title.trim() || `시간표_${state.start.replace(':','')}-${state.end.replace(':','')}`;
+  a.download = `${baseName.replace(/[\\/:*?"<>|]/g, '_')}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 };
 
 function autosave() {
   const data = {
+    title: state.title,
     start: state.start, end: state.end, cols: state.cols,
     colNames: state.colNames, sessions: state.sessions
   };
@@ -628,25 +661,40 @@ $('xlsxBtn').onclick = () => {
     alert('XLSX 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
     return;
   }
+  const defaultName = state.title.trim() || `시간표_${state.start.replace(':','')}-${state.end.replace(':','')}`;
+  const input = prompt('파일 제목을 입력하세요 (확장자 제외)', defaultName);
+  if (input === null) return;
+  const title = (input.trim() || defaultName).replace(/[\\/:*?"<>|]/g, '_');
   const header = ['시작', '종료', ...state.colNames];
-  const aoa = [header];
+  const aoa = [];
+  const merges = [];
+  const totalCols = 2 + state.cols;
+  const titleText = state.title.trim();
+  let headerOffset = 0;
+  if (titleText) {
+    const titleRow = [titleText];
+    for (let i = 1; i < totalCols; i++) titleRow.push('');
+    aoa.push(titleRow);
+    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } });
+    headerOffset = 1;
+  }
+  aoa.push(header);
   for (let r = 0; r < state.slots.length; r++) {
     const tmin = state.slots[r];
     const row = [formatTime(tmin), formatTime(tmin + 5)];
     for (let c = 0; c < state.cols; c++) row.push('');
     aoa.push(row);
   }
-  const merges = [];
   for (const id in state.sessions) {
     const s = state.sessions[id];
     const mins = (s.end - s.start + 1) * 5;
-    const rowIdx = s.start + 1;
+    const rowIdx = s.start + 1 + headerOffset;
     const colIdx = 2 + s.col;
     aoa[rowIdx][colIdx] = `${s.name} (${mins})`;
     if (s.end > s.start) {
       merges.push({
         s: { r: rowIdx, c: colIdx },
-        e: { r: s.end + 1, c: colIdx }
+        e: { r: s.end + 1 + headerOffset, c: colIdx }
       });
     }
   }
@@ -658,7 +706,7 @@ $('xlsxBtn').onclick = () => {
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '시간표');
-  XLSX.writeFile(wb, `시간표_${state.start.replace(':','')}-${state.end.replace(':','')}.xlsx`);
+  XLSX.writeFile(wb, `${title}.xlsx`);
 };
 
 $('saveBtn').onclick = () => { autosave(); alert('저장되었습니다.'); };
@@ -668,8 +716,10 @@ $('loadBtn').onclick = () => {
   if (!raw) { alert('저장된 데이터가 없습니다.'); return; }
   try {
     const d = JSON.parse(raw);
+    state.title = d.title || '';
     state.start = d.start; state.end = d.end; state.cols = d.cols;
     state.colNames = d.colNames || []; state.sessions = d.sessions || {};
+    $('scheduleTitle').value = state.title;
     $('startTime').value = state.start;
     $('endTime').value = state.end;
     $('colCount').value = state.cols;
@@ -678,16 +728,23 @@ $('loadBtn').onclick = () => {
   } catch (e) { alert('불러오기 실패: ' + e.message); }
 };
 
+$('scheduleTitle').addEventListener('input', (e) => {
+  state.title = e.target.value;
+  autosave();
+});
+
 function init() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
       const d = JSON.parse(raw);
+      state.title = d.title || '';
       state.start = d.start || '09:00';
       state.end = d.end || '18:00';
       state.cols = d.cols || 2;
       state.colNames = d.colNames || [];
       state.sessions = d.sessions || {};
+      $('scheduleTitle').value = state.title;
       $('startTime').value = state.start;
       $('endTime').value = state.end;
       $('colCount').value = state.cols;
