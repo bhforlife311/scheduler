@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>5분 단위 시간표 편집기</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -220,6 +221,7 @@
   </label>
   <button id="buildBtn">표 만들기</button>
   <button id="exportBtn" class="secondary">CSV 내보내기</button>
+  <button id="xlsxBtn" class="secondary">XLSX 내보내기 (셀 병합)</button>
   <button id="saveBtn" class="secondary">저장 (브라우저)</button>
   <button id="loadBtn" class="secondary">불러오기</button>
   <button id="clearBtn" class="danger">전체 지우기</button>
@@ -620,6 +622,44 @@ function autosave() {
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
+
+$('xlsxBtn').onclick = () => {
+  if (typeof XLSX === 'undefined') {
+    alert('XLSX 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
+    return;
+  }
+  const header = ['시작', '종료', ...state.colNames];
+  const aoa = [header];
+  for (let r = 0; r < state.slots.length; r++) {
+    const tmin = state.slots[r];
+    const row = [formatTime(tmin), formatTime(tmin + 5)];
+    for (let c = 0; c < state.cols; c++) row.push('');
+    aoa.push(row);
+  }
+  const merges = [];
+  for (const id in state.sessions) {
+    const s = state.sessions[id];
+    const mins = (s.end - s.start + 1) * 5;
+    const rowIdx = s.start + 1;
+    const colIdx = 2 + s.col;
+    aoa[rowIdx][colIdx] = `${s.name} (${mins})`;
+    if (s.end > s.start) {
+      merges.push({
+        s: { r: rowIdx, c: colIdx },
+        e: { r: s.end + 1, c: colIdx }
+      });
+    }
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = merges;
+  ws['!cols'] = [
+    { wch: 8 }, { wch: 8 },
+    ...state.colNames.map(() => ({ wch: 22 }))
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '시간표');
+  XLSX.writeFile(wb, `시간표_${state.start.replace(':','')}-${state.end.replace(':','')}.xlsx`);
+};
 
 $('saveBtn').onclick = () => { autosave(); alert('저장되었습니다.'); };
 
