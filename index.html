@@ -137,6 +137,12 @@
   }
   td.session.filled {
     background: #fff8e1;
+    cursor: move;
+  }
+  td.session.filled.dragging {
+    opacity: 0.7;
+    outline: 2px dashed #2c6ef2;
+    outline-offset: -2px;
   }
   td.session.selected {
     background: #c7dcff !important;
@@ -259,7 +265,8 @@
 
 <div class="hint">
   <strong>사용법:</strong> 빈 셀을 드래그해서 세션 범위를 선택한 후 세션명을 입력하세요.
-  <br><strong>수정:</strong> 이미 입력된 세션을 클릭하면 이름뿐 아니라 <b>시작/종료 시간, 열</b>까지 모두 변경할 수 있습니다.
+  <br><strong>수정:</strong> 이미 입력된 세션을 클릭하면 이름·시작/종료 시간·열까지 모두 변경할 수 있습니다.
+  <br><strong>이동/길이 조정:</strong> 세션 가운데를 드래그하면 같은 열 안에서 위아래로 이동, <b>위/아래 가장자리</b>를 드래그하면 길이 조정.
   괄호 안 숫자는 자동 계산된 분(分)입니다.
 </div>
 
@@ -379,7 +386,7 @@ function render() {
         td.dataset.session = session.id;
         const mins = (session.end - session.start + 1) * 5;
         td.innerHTML = `<div class="label">${escapeHtml(session.name)}</div><div class="mins">(${mins})</div>`;
-        td.addEventListener('click', () => openEditModal(session.id));
+        attachDragHandlers(td, session.id);
         tr.appendChild(td);
         for (let rr = session.start; rr <= session.end; rr++) {
           renderedCells[`${rr}_${c}`] = true;
@@ -441,6 +448,110 @@ function attachSelectionHandlers(td) {
 }
 
 document.addEventListener('mouseup', () => { selecting = false; });
+
+// ───── 세션 블록 드래그 (이동 / 리사이즈) ─────
+let activeDrag = null;
+const EDGE_PX = 6;
+const MOVE_THRESHOLD_PX = 3;
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function getRowHeight() {
+  const cell = $('tbody').querySelector('td.time');
+  return cell ? cell.getBoundingClientRect().height : 26;
+}
+
+function dragModeForY(td, clientY) {
+  const rect = td.getBoundingClientRect();
+  const y = clientY - rect.top;
+  if (y <= EDGE_PX) return 'resize-top';
+  if (y >= rect.height - EDGE_PX) return 'resize-bottom';
+  return 'move';
+}
+
+function attachDragHandlers(td, sessionId) {
+  td.addEventListener('mousemove', (e) => {
+    if (activeDrag) return;
+    const mode = dragModeForY(td, e.clientY);
+    td.style.cursor = mode === 'move' ? 'move' : 'ns-resize';
+  });
+
+  td.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const s = state.sessions[sessionId];
+    if (!s) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const mode = dragModeForY(td, e.clientY);
+    activeDrag = {
+      sessionId, mode,
+      startY: e.clientY,
+      origStart: s.start,
+      origEnd: s.end,
+      rowHeight: getRowHeight(),
+      moved: false,
+      lastDelta: 0,
+      td,
+    };
+    td.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = mode === 'move' ? 'move' : 'ns-resize';
+  });
+}
+
+function applyDragPreview() {
+  const d = activeDrag;
+  const s = state.sessions[d.sessionId];
+  if (!s) return;
+  const maxIdx = state.slots.length - 1;
+  const dur = d.origEnd - d.origStart;
+  let newStart, newEnd;
+  if (d.mode === 'move') {
+    newStart = clamp(d.origStart + d.lastDelta, 0, maxIdx - dur);
+    newEnd = newStart + dur;
+  } else if (d.mode === 'resize-top') {
+    newStart = clamp(d.origStart + d.lastDelta, 0, d.origEnd);
+    newEnd = d.origEnd;
+  } else {
+    newStart = d.origStart;
+    newEnd = clamp(d.origEnd + d.lastDelta, d.origStart, maxIdx);
+  }
+  if (rangeOverlapsSession(newStart, newEnd, s.col, d.sessionId)) return;
+  if (s.start === newStart && s.end === newEnd) return;
+  s.start = newStart;
+  s.end = newEnd;
+  render();
+  // 새 td에 dragging 클래스 유지
+  const newTd = $('tbody').querySelector(`td.session.filled[data-session="${d.sessionId}"]`);
+  if (newTd) {
+    newTd.classList.add('dragging');
+    d.td = newTd;
+  }
+}
+
+document.addEventListener('mousemove', (e) => {
+  if (!activeDrag) return;
+  const deltaY = e.clientY - activeDrag.startY;
+  if (Math.abs(deltaY) > MOVE_THRESHOLD_PX) activeDrag.moved = true;
+  const deltaRows = Math.round(deltaY / activeDrag.rowHeight);
+  if (deltaRows === activeDrag.lastDelta) return;
+  activeDrag.lastDelta = deltaRows;
+  applyDragPreview();
+});
+
+document.addEventListener('mouseup', () => {
+  if (!activeDrag) return;
+  const d = activeDrag;
+  activeDrag = null;
+  document.body.style.userSelect = '';
+  document.body.style.cursor = '';
+  if (d.td) d.td.classList.remove('dragging');
+  if (!d.moved) {
+    openEditModal(d.sessionId);
+  } else {
+    autosave();
+  }
+});
 
 function clearSelection() {
   document.querySelectorAll('td.session.selected').forEach(el => el.classList.remove('selected'));
