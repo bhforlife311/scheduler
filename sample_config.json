@@ -1,0 +1,34 @@
+{
+  "title": "샘플 역량평가",
+  "total_candidates": 12,
+  "techniques": [
+    { "name": "서류함",        "assessors": 1, "candidates": 1, "duration_min": 60 },
+    { "name": "구두발표",      "assessors": 1, "candidates": 1, "duration_min": 30 },
+    { "name": "1대1역할수행",  "assessors": 1, "candidates": 1, "duration_min": 30 },
+    { "name": "집단토론",      "assessors": 3, "candidates": 3, "duration_min": 50 }
+  ],
+  "start_time": "09:00",
+  "transition_min": 10,
+  "lunch_min": 60,
+  "lunch_window": ["11:30", "13:30"],
+  "assessor_mode": "universal",
+  "assessor_count_by_technique": {},
+  "rooms": [
+    { "name": "평가실 1", "supported": ["서류함", "구두발표", "1대1역할수행"], "capacity": 2, "zone": "A" },
+    { "name": "평가실 2", "supported": ["서류함", "구두발표", "1대1역할수행"], "capacity": 2, "zone": "A" },
+    { "name": "평가실 3", "supported": ["서류함", "구두발표", "1대1역할수행"], "capacity": 2, "zone": "B" },
+    { "name": "평가실 4", "supported": ["서류함", "구두발표", "1대1역할수행"], "capacity": 2, "zone": "B" },
+    { "name": "평가실 5", "supported": ["서류함", "구두발표", "1대1역할수행"], "capacity": 2, "zone": "C" },
+    { "name": "평가실 6", "supported": ["서류함", "구두발표", "1대1역할수행"], "capacity": 2, "zone": "C" },
+    { "name": "회의실 1", "supported": ["집단토론"], "capacity": 6, "zone": "D" },
+    { "name": "회의실 2", "supported": ["집단토론"], "capacity": 6, "zone": "D" }
+  ],
+  "waiting_rooms": [
+    { "name": "대기실 1", "zone": "WA" },
+    { "name": "대기실 2", "zone": "WB" },
+    { "name": "대기실 3", "zone": "WC" },
+    { "name": "대기실 4", "zone": "WD" },
+    { "name": "대기실 5", "zone": "WE" },
+    { "name": "대기실 6", "zone": "WF" }
+  ]
+}

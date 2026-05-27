@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>평가 시간표 동선 시각화</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    margin: 0; padding: 20px;
+    background: #f5f6f8; color: #222;
+  }
+  h1 { margin: 0 0 12px; font-size: 22px; }
+  .hint { color: #666; font-size: 12px; margin: 4px 0 12px; line-height: 1.5; }
+
+  /* ───── 업로드 영역 ───── */
+  .dropzone {
+    border: 2px dashed #9ab; background: #fff; border-radius: 8px;
+    padding: 50px 20px; text-align: center; color: #678;
+    cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    margin-bottom: 16px;
+  }
+  .dropzone:hover, .dropzone.over { background: #e8f0ff; border-color: #2c6ef2; }
+  .dropzone .title { font-size: 16px; font-weight: 500; color: #234; }
+  .dropzone .sub { font-size: 12px; color: #888; margin-top: 8px; }
+
+  /* ───── 메타 바 ───── */
+  .meta-bar {
+    background: #fff; padding: 10px 14px; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 12px;
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center; font-size: 13px;
+  }
+  .meta-bar .kv { color: #555; }
+  .meta-bar .kv b { color: #2c6ef2; font-weight: 600; }
+  .meta-bar select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+  .meta-bar button {
+    margin-left: auto; padding: 6px 14px; border: 1px solid #ccc;
+    background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  .meta-bar button:hover { background: #f0f0f0; }
+
+  /* ───── 뷰 탭 ───── */
+  .view-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .view-tabs button {
+    padding: 8px 18px; border: 1px solid #d5d7dc;
+    background: #fff; color: #333; font-size: 14px; font-weight: 500;
+    border-radius: 6px 6px 0 0; cursor: pointer;
+  }
+  .view-tabs button.active { background: #2c6ef2; color: white; border-color: #2c6ef2; }
+  .hidden { display: none !important; }
+
+  /* ───── 간트 / 장소 타임라인 공용 ───── */
+  .gantt {
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 14px;
+    overflow: auto; max-height: calc(100vh - 240px);
+  }
+  .gantt-row { display: flex; align-items: stretch; }
+  .gantt-row + .gantt-row { margin-top: 4px; }
+  .gantt-label {
+    flex-shrink: 0; padding: 6px 10px;
+    font-weight: 600; background: #f0f3f8;
+    border-radius: 4px 0 0 4px;
+    display: flex; align-items: center;
+    font-size: 13px;
+  }
+  .gantt-track {
+    position: relative; flex: 1;
+    background: repeating-linear-gradient(
+      to right,
+      #f5f6f8 0 1px,
+      transparent 1px 60px
+    );
+  }
+  .gantt-header-row .gantt-label { background: transparent; }
+  .gantt-header-row .gantt-track { height: 24px; background: transparent; }
+  .gantt-row:not(.gantt-header-row) .gantt-track { height: 34px; border: 1px solid #eee; border-radius: 0 4px 4px 0; }
+  .gantt-tick {
+    position: absolute; height: 100%;
+    border-left: 1px solid #ddd;
+    font-size: 11px; color: #666;
+    padding: 2px 4px; white-space: nowrap;
+  }
+  .gantt-block {
+    position: absolute; top: 3px; bottom: 3px;
+    border-radius: 3px; color: white; font-size: 11px;
+    padding: 4px 6px; line-height: 1.2;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    cursor: default; display: flex; align-items: center;
+  }
+  .gantt-block:hover { filter: brightness(1.08); z-index: 1; }
+  .gantt-legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    padding: 10px 14px; background: #fff;
+    border-radius: 8px; margin-top: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    font-size: 12px;
+  }
+  .gantt-legend .item { display: flex; align-items: center; gap: 6px; }
+  .gantt-legend .sw { width: 14px; height: 14px; border-radius: 3px; }
+
+  /* ───── 운영요원 카드 ───── */
+  .staff-filter {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 12px; padding: 10px 14px;
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    align-items: center;
+  }
+  .staff-filter .label {
+    font-size: 12px; color: #555; font-weight: 600;
+    margin-right: 4px;
+  }
+  .staff-chip {
+    padding: 5px 12px; border: 1px solid #d5d7dc;
+    background: #fff; border-radius: 16px;
+    cursor: pointer; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: inherit;
+  }
+  .staff-chip:hover { background: #eef4ff; border-color: #aac; }
+  .staff-chip.active { background: #2c6ef2; color: white; border-color: #2c6ef2; }
+  .staff-chip .cnt {
+    font-size: 11px; color: #888;
+    background: #f0f0f0; padding: 1px 6px;
+    border-radius: 8px; font-weight: 600;
+  }
+  .staff-chip.active .cnt { background: rgba(255,255,255,0.25); color: white; }
+  .ops-mode-toggle {
+    display: inline-flex; gap: 2px;
+    margin-left: auto; padding: 2px;
+    background: #f0f3f8; border-radius: 6px;
+  }
+  .ops-mode-toggle button {
+    padding: 4px 12px; border: none;
+    background: transparent; cursor: pointer;
+    font-size: 12px; border-radius: 4px; font-family: inherit;
+    color: #555;
+  }
+  .ops-mode-toggle button.active {
+    background: white; color: #2c6ef2;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+  .ops-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+  }
+  /* ───── 흐름 뷰 (연대순) ───── */
+  .ops-flow {
+    position: relative;
+    padding: 8px 0 8px 36px;
+    max-width: 720px;
+  }
+  .ops-flow::before {
+    content: '';
+    position: absolute;
+    left: 14px; top: 16px; bottom: 16px;
+    width: 2px;
+    background: linear-gradient(to bottom, #d0dbeb 0%, #d0dbeb 100%);
+  }
+  .flow-step {
+    position: relative;
+    margin-bottom: 8px;
+  }
+  .flow-step::before {
+    content: '';
+    position: absolute;
+    left: -28px; top: 14px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #2c6ef2;
+    border: 3px solid white;
+    box-shadow: 0 0 0 2px #2c6ef2;
+    z-index: 1;
+  }
+  .flow-gap {
+    color: #888;
+    font-size: 11px;
+    padding: 4px 0 4px 4px;
+    margin: -2px 0 -2px;
+    font-style: italic;
+    position: relative;
+  }
+  .flow-gap::before {
+    content: '';
+    position: absolute;
+    left: -22px; top: 50%;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #bbb;
+    transform: translateY(-50%);
+  }
+  .ops-card {
+    background: white; border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    padding: 12px; border-left: 4px solid #2c6ef2;
+  }
+  .ops-card .time {
+    font-weight: 700; color: #2c6ef2; font-size: 14px;
+    margin-bottom: 6px; font-variant-numeric: tabular-nums;
+  }
+  .ops-card .staff {
+    font-size: 12px; font-weight: 600; color: #555;
+    margin-bottom: 6px;
+  }
+  .ops-card .staff::before { content: '👤 '; }
+  .ops-card .note { font-size: 13px; line-height: 1.4; color: #222; white-space: pre-wrap; }
+
+  /* ───── 빈/에러 상태 ───── */
+  .empty-state {
+    background: #fff; padding: 40px; border-radius: 8px;
+    text-align: center; color: #888; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<h1>평가 시간표 동선 시각화</h1>
+<div class="hint">
+  <code>index.html</code>은 from-scratch 작성용, 이 페이지는 <b>완성된 시간표 xlsx</b>를 업로드해 동선을 시각화하는 도구입니다.
+</div>
+
+<div class="dropzone" id="drop">
+  <div class="title">평가 시간표 xlsx 파일을 끌어다 놓거나 클릭하여 선택</div>
+  <div class="sub">예: (공무원연금공단) 3급 승진후보자 역량평가_평가시간표.xlsx</div>
+  <input type="file" accept=".xlsx,.xlsm" id="filePicker" style="display:none" />
+</div>
+
+<div class="meta-bar hidden" id="meta">
+  <span class="kv">파일: <b id="fileName"></b></span>
+  <span class="kv">시트:
+    <select id="sheetPicker"></select>
+  </span>
+  <span class="kv">시간: <b id="timeRange"></b></span>
+  <span class="kv">조: <b id="cohortList"></b></span>
+  <span class="kv">세션: <b id="sessionCount"></b></span>
+  <button id="reloadBtn">다른 파일 열기</button>
+</div>
+
+<div class="view-tabs hidden" id="viewTabs">
+  <button data-view="gantt" class="active">조별 간트</button>
+  <button data-view="location">장소 점유 타임라인</button>
+  <button data-view="ops">운영요원 시간대별 행동카드</button>
+</div>
+
+<div id="content"></div>
+
+<script>
+let workbook = null;
+let parsed = null;
+let currentView = 'gantt';
+let currentStaffFilter = null;  // null = 전체
+let opsViewMode = 'grid';        // 'grid' | 'flow'
+
+const $ = id => document.getElementById(id);
+
+// ───── 파일 업로드 ─────
+const drop = $('drop');
+const filePicker = $('filePicker');
+
+drop.addEventListener('click', () => filePicker.click());
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  if (e.dataTransfer.files.length > 0) loadFile(e.dataTransfer.files[0]);
+});
+filePicker.addEventListener('change', (e) => {
+  if (e.target.files.length > 0) loadFile(e.target.files[0]);
+});
+
+$('reloadBtn').addEventListener('click', () => {
+  workbook = null; parsed = null;
+  $('drop').classList.remove('hidden');
+  $('meta').classList.add('hidden');
+  $('viewTabs').classList.add('hidden');
+  $('content').innerHTML = '';
+  filePicker.value = '';
+});
+
+$('sheetPicker').addEventListener('change', (e) => {
+  parseAndRender(e.target.value);
+});
+
+document.querySelectorAll('.view-tabs button').forEach(b => {
+  b.onclick = () => {
+    currentView = b.dataset.view;
+    document.querySelectorAll('.view-tabs button').forEach(x => x.classList.toggle('active', x === b));
+    renderView();
+  };
+});
+
+function loadFile(file) {
+  currentStaffFilter = null;
+  $('fileName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: false });
+    } catch (err) {
+      alert('파일 읽기 실패: ' + err.message);
+      return;
+    }
+    const picker = $('sheetPicker');
+    picker.innerHTML = '';
+    workbook.SheetNames.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n; opt.textContent = n;
+      picker.appendChild(opt);
+    });
+    const best = pickBestSheet(workbook);
+    picker.value = best;
+    $('drop').classList.add('hidden');
+    $('meta').classList.remove('hidden');
+    $('viewTabs').classList.remove('hidden');
+    parseAndRender(best);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function pickBestSheet(wb) {
+  let best = wb.SheetNames[0];
+  let bestSize = 0;
+  for (const n of wb.SheetNames) {
+    const ws = wb.Sheets[n];
+    const ref = ws['!ref'];
+    if (!ref) continue;
+    const r = XLSX.utils.decode_range(ref);
+    const size = (r.e.r - r.s.r) * (r.e.c - r.s.c);
+    if (size > bestSize) { bestSize = size; best = n; }
+  }
+  return best;
+}
+
+function parseAndRender(sheetName) {
+  const ws = workbook.Sheets[sheetName];
+  parsed = parseSheet(ws);
+  $('timeRange').textContent = parsed.sessions.length
+    ? `${formatTime(parsed.minTime)} ~ ${formatTime(parsed.maxTime)}`
+    : '—';
+  $('cohortList').textContent = parsed.cohorts.join(', ') || '—';
+  $('sessionCount').textContent = parsed.sessions.length + '개';
+  renderView();
+}
+
+function renderView() {
+  const el = $('content');
+  if (!parsed) { el.innerHTML = ''; return; }
+  if (currentView === 'gantt')         el.innerHTML = renderGantt(parsed);
+  else if (currentView === 'location') el.innerHTML = renderLocation(parsed);
+  else if (currentView === 'ops')      el.innerHTML = renderOps(parsed);
+}
+
+// ───── Parser ─────
+function parseSheet(ws) {
+  const ref = ws['!ref'];
+  if (!ref) return emptyResult();
+  const range = XLSX.utils.decode_range(ref);
+  const numRows = range.e.r + 1;
+  const numCols = range.e.c + 1;
+
+  // 셀 값 행렬
+  const cells = [];
+  for (let r = 0; r < numRows; r++) {
+    const row = [];
+    for (let c = 0; c < numCols; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      const cell = ws[addr];
+      row.push(cell ? (cell.w != null ? cell.w : cell.v) : '');
+    }
+    cells.push(row);
+  }
+
+  // 병합 정보
+  const mergeStartMap = {};       // "r,c" → rowSpan
+  const mergedOver = new Set();   // 병합의 마스터가 아닌 셀들
+  for (const m of (ws['!merges'] || [])) {
+    mergeStartMap[`${m.s.r},${m.s.c}`] = m.e.r - m.s.r + 1;
+    for (let rr = m.s.r; rr <= m.e.r; rr++) {
+      for (let cc = m.s.c; cc <= m.e.c; cc++) {
+        if (rr === m.s.r && cc === m.s.c) continue;
+        mergedOver.add(`${rr},${cc}`);
+      }
+    }
+  }
+
+  // 헤더 행 탐색
+  let headerRow = -1;
+  for (let r = 0; r < Math.min(numRows, 10); r++) {
+    const rowStr = cells[r].map(v => String(v)).join('|');
+    if (rowStr.includes('담당') && rowStr.includes('행동요령')) {
+      headerRow = r; break;
+    }
+  }
+  if (headerRow < 0) {
+    // 폴백: '시간' 셀이 가장 많은 행
+    let best = -1, bestCount = 0;
+    for (let r = 0; r < Math.min(numRows, 10); r++) {
+      const count = cells[r].filter(v => String(v).trim() === '시간').length;
+      if (count > bestCount) { bestCount = count; best = r; }
+    }
+    headerRow = best >= 0 ? best : 0;
+  }
+
+  // 컬럼 식별
+  const header = cells[headerRow];
+  let staffCol = -1, noteCol = -1;
+  const timeCols = [];
+  const cohortCols = [];
+  let assessorCol = -1;
+  for (let c = 0; c < header.length; c++) {
+    const v = String(header[c] || '').trim();
+    if (!v) continue;
+    if (v === '담당') staffCol = c;
+    else if (v.includes('행동요령') || v.includes('운영요원')) noteCol = c;
+    else if (v === '시간') timeCols.push(c);
+    else if (v === '평가위원') assessorCol = c;
+    else if (/^[A-Za-z가-힣\d]+조$/.test(v)) cohortCols.push({ col: c, name: v });
+  }
+  const primaryTimeCol = timeCols[0] != null ? timeCols[0] : -1;
+
+  // 각 행의 시작 분
+  const rowTimes = new Array(numRows).fill(null);
+  for (let r = headerRow + 1; r < numRows; r++) {
+    const t = parseTimeCell(cells[r][primaryTimeCol]);
+    if (t !== null) rowTimes[r] = t;
+  }
+
+  // 세션 추출
+  const sessions = [];
+  let minTime = Infinity, maxTime = -Infinity;
+
+  function processColumn(col, name, isAssessor) {
+    for (let r = headerRow + 1; r < numRows; r++) {
+      const key = `${r},${col}`;
+      if (mergedOver.has(key)) continue;
+      const rawVal = cells[r][col];
+      if (rawVal == null || String(rawVal).trim() === '') continue;
+      const span = mergeStartMap[key] || 1;
+      const startMin = rowTimes[r];
+      const lastRow = r + span - 1;
+      const lastRowStart = rowTimes[lastRow];
+      let endMin;
+      if (startMin !== null && lastRowStart !== null) endMin = lastRowStart + 5;
+      else if (startMin !== null) endMin = startMin + span * 5;
+      else continue;
+      const pc = parseCellText(String(rawVal));
+      sessions.push({
+        cohort: name,
+        startMin, endMin,
+        activity: pc.activity || String(rawVal).trim(),
+        location: pc.location,
+        durationMin: pc.duration,
+        raw: String(rawVal),
+        isAssessor: !!isAssessor,
+      });
+      if (startMin < minTime) minTime = startMin;
+      if (endMin > maxTime) maxTime = endMin;
+    }
+  }
+
+  for (const { col, name } of cohortCols) processColumn(col, name, false);
+  if (assessorCol >= 0) processColumn(assessorCol, '평가위원', true);
+
+  // 운영 메모
+  const opsNotes = [];
+  for (let r = headerRow + 1; r < numRows; r++) {
+    const staff = staffCol >= 0 ? String(cells[r][staffCol] || '').trim() : '';
+    const note  = noteCol  >= 0 ? String(cells[r][noteCol]  || '').trim() : '';
+    if (!staff && !note) continue;
+    const t = rowTimes[r];
+    if (t === null) continue;
+    opsNotes.push({ startMin: t, endMin: t + 5, staff, note });
+  }
+
+  if (!isFinite(minTime)) { minTime = 0; maxTime = 0; }
+  // 30분 단위로 정렬
+  const startSnap = Math.floor(minTime / 30) * 30;
+  const endSnap = Math.ceil(maxTime / 30) * 30;
+
+  return {
+    cohorts: cohortCols.map(x => x.name).concat(assessorCol >= 0 ? ['평가위원'] : []),
+    sessions, opsNotes,
+    minTime: startSnap, maxTime: endSnap,
+  };
+}
+
+function emptyResult() {
+  return { cohorts: [], sessions: [], opsNotes: [], minTime: 0, maxTime: 0 };
+}
+
+function parseTimeCell(val) {
+  if (val == null || val === '') return null;
+  if (typeof val === 'number') {
+    // Excel 시리얼 (시간만이면 0~1)
+    if (val >= 0 && val < 1) return Math.round(val * 24 * 60);
+    return null;
+  }
+  const s = String(val).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  return null;
+}
+
+// 장소 매칭: 명확한 장소 표현만 (활동명에 우연히 "평가실" 부분이 들어간 "평가실이동" 같은 건 제외)
+// - 숙지실 [숫자-숫자 / 숫자-숫자]
+// - 평가실 [숫자]?         (단독 또는 뒤에 숫자만)
+// - VIP룸 / 폴라룸 / 운영실 / 회의실 / 강당
+// - 컨퍼런스룸 [숫자]
+// - 빅베어 [숫자]?
+const LOC_REGEX = /(숙지실\s*\d+(?:-\d+)?(?:\s*\/\s*\d+(?:-\d+)?)*|평가실(?:\s*\d+)?(?=\s|$|\()|VIP\s*룸|폴라룸|운영실|컨퍼런스룸\s*\d*|빅베어\s*\d*|회의실|강당)/;
+
+function parseCellText(text) {
+  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  let activityParts = [];
+  let duration = null;
+  let location = null;
+
+  for (const line of lines) {
+    const stripped = line.replace(/\s*\(\d+\)\s*$/, '').replace(/\(\d+\)/g, '').trim();
+    const dm = line.match(/\((\d+)\)/);
+    if (dm) duration = parseInt(dm[1], 10);
+
+    const locMatch = stripped.match(LOC_REGEX);
+    if (locMatch && !location) {
+      location = locMatch[1].trim();
+      // 라인의 위치 부분을 빼고 남은 텍스트는 활동명에 추가
+      const before = stripped.slice(0, locMatch.index).trim();
+      const after  = stripped.slice(locMatch.index + locMatch[0].length).trim();
+      if (before) activityParts.push(before);
+      if (after)  activityParts.push(after);
+    } else if (stripped) {
+      activityParts.push(stripped);
+    }
+  }
+
+  const activity = activityParts.filter(Boolean).join(' ').trim();
+  return { activity, duration, location };
+}
+
+// ───── 색상 ─────
+const ACTIVITY_COLORS = {
+  'OT':            '#26a69a',
+  '과제숙지':       '#26a69a',
+  '역할수행':       '#42a5f5',
+  '서류함':         '#66bb6a',
+  '인터뷰':         '#ab47bc',
+  '점심':           '#ff9800',
+  '이동':           '#9e9e9e',
+  '대기':           '#cfd8dc',
+  '평정작성':       '#ec407a',
+  '답안검토':       '#ec407a',
+  '답안지':         '#90a4ae',
+  '사진':           '#78909c',
+  '설문':           '#90a4ae',
+  '조정회의':       '#5c6bc0',
+};
+function colorFor(activity) {
+  if (!activity) return '#9e9e9e';
+  for (const k of Object.keys(ACTIVITY_COLORS)) {
+    if (activity.includes(k)) return ACTIVITY_COLORS[k];
+  }
+  let h = 0;
+  for (let i = 0; i < activity.length; i++) h = (h * 31 + activity.charCodeAt(i)) & 0xffffff;
+  return `hsl(${h % 360}, 45%, 55%)`;
+}
+function cohortColor(name) {
+  const palette = ['#42a5f5', '#66bb6a', '#ef5350', '#ab47bc', '#ff9800', '#26a69a', '#5c6bc0', '#ec407a'];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffff;
+  return palette[h % palette.length];
+}
+
+// ───── 공통 유틸 ─────
+function formatTime(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+}
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/\n/g, '&#10;');
+}
+
+// 타임라인 폭 계산 (분당 픽셀)
+const PX_PER_MIN = 2.4;
+const LABEL_WIDTH = 110;
+
+function timeAxisHTML(startMin, endMin) {
+  const totalMins = endMin - startMin;
+  const trackWidth = totalMins * PX_PER_MIN;
+  let ticks = '';
+  for (let t = startMin; t <= endMin; t += 30) {
+    const left = (t - startMin) * PX_PER_MIN;
+    ticks += `<span class="gantt-tick" style="left:${left}px">${formatTime(t)}</span>`;
+  }
+  return { ticks, trackWidth };
+}
+
+// ───── 1) 조별 간트 ─────
+function renderGantt(p) {
+  if (p.sessions.length === 0) {
+    return `<div class="empty-state">파싱된 세션이 없습니다. 시트나 파일 형식을 확인하세요.</div>`;
+  }
+  const cohorts = p.cohorts.length ? p.cohorts : [...new Set(p.sessions.map(s => s.cohort))];
+  const { ticks, trackWidth } = timeAxisHTML(p.minTime, p.maxTime);
+
+  let html = '<div class="gantt">';
+  // 헤더
+  html += `<div class="gantt-row gantt-header-row">
+    <div class="gantt-label" style="width:${LABEL_WIDTH}px"></div>
+    <div class="gantt-track" style="min-width:${trackWidth}px">${ticks}</div>
+  </div>`;
+
+  for (const c of cohorts) {
+    const list = p.sessions.filter(s => s.cohort === c).sort((a, b) => a.startMin - b.startMin);
+    let blocks = '';
+    for (const s of list) {
+      const left = (s.startMin - p.minTime) * PX_PER_MIN;
+      const width = (s.endMin - s.startMin) * PX_PER_MIN;
+      const color = colorFor(s.activity);
+      const tip = `${formatTime(s.startMin)} ~ ${formatTime(s.endMin)} (${s.endMin - s.startMin}분)\n${s.activity}${s.location ? '\n@ ' + s.location : ''}`;
+      blocks += `<div class="gantt-block" style="left:${left}px;width:${Math.max(width-1, 4)}px;background:${color}" title="${escapeAttr(tip)}">${escapeHtml(s.activity || '')}</div>`;
+    }
+    html += `<div class="gantt-row">
+      <div class="gantt-label" style="width:${LABEL_WIDTH}px">${escapeHtml(c)}</div>
+      <div class="gantt-track" style="min-width:${trackWidth}px">${blocks}</div>
+    </div>`;
+  }
+  html += '</div>';
+
+  // 범례
+  const usedActivities = [...new Set(p.sessions.map(s => s.activity).filter(Boolean))];
+  let legend = '<div class="gantt-legend">';
+  for (const a of usedActivities) {
+    legend += `<span class="item"><span class="sw" style="background:${colorFor(a)}"></span>${escapeHtml(a)}</span>`;
+  }
+  legend += '</div>';
+
+  return html + legend;
+}
+
+// ───── 2) 장소 점유 ─────
+function renderLocation(p) {
+  const withLoc = p.sessions.filter(s => s.location);
+  const locations = [...new Set(withLoc.map(s => s.location))].sort();
+  if (locations.length === 0) {
+    return `<div class="empty-state">장소 정보가 추출된 세션이 없습니다.<br><span style="font-size:12px;color:#aaa">셀에 "숙지실 1-1", "VIP룸", "평가실" 같은 키워드가 있어야 인식됩니다.</span></div>`;
+  }
+  const { ticks, trackWidth } = timeAxisHTML(p.minTime, p.maxTime);
+
+  let html = '<div class="gantt">';
+  html += `<div class="gantt-row gantt-header-row">
+    <div class="gantt-label" style="width:${LABEL_WIDTH}px"></div>
+    <div class="gantt-track" style="min-width:${trackWidth}px">${ticks}</div>
+  </div>`;
+
+  for (const loc of locations) {
+    const list = withLoc.filter(s => s.location === loc).sort((a, b) => a.startMin - b.startMin);
+    let blocks = '';
+    for (const s of list) {
+      const left = (s.startMin - p.minTime) * PX_PER_MIN;
+      const width = (s.endMin - s.startMin) * PX_PER_MIN;
+      const color = cohortColor(s.cohort);
+      const tip = `${formatTime(s.startMin)} ~ ${formatTime(s.endMin)}\n${s.cohort}: ${s.activity}`;
+      blocks += `<div class="gantt-block" style="left:${left}px;width:${Math.max(width-1, 4)}px;background:${color}" title="${escapeAttr(tip)}">${escapeHtml(s.cohort)}: ${escapeHtml(s.activity || '')}</div>`;
+    }
+    html += `<div class="gantt-row">
+      <div class="gantt-label" style="width:${LABEL_WIDTH}px">${escapeHtml(loc)}</div>
+      <div class="gantt-track" style="min-width:${trackWidth}px">${blocks}</div>
+    </div>`;
+  }
+  html += '</div>';
+
+  // 범례 (조별 색상)
+  const cohortsUsed = [...new Set(withLoc.map(s => s.cohort))];
+  let legend = '<div class="gantt-legend">';
+  for (const c of cohortsUsed) {
+    legend += `<span class="item"><span class="sw" style="background:${cohortColor(c)}"></span>${escapeHtml(c)}</span>`;
+  }
+  legend += '</div>';
+  return html + legend;
+}
+
+// ───── 3) 운영요원 카드 ─────
+function splitStaff(staff) {
+  if (!staff) return [];
+  // 약식 표기 정규화: "감독1,2,5,6" → "감독1, 감독2, 감독5, 감독6"
+  const normalized = staff.replace(
+    /([가-힣A-Za-z]+)(\d+(?:[,、]\s*\d+)+)/g,
+    (_, prefix, nums) => nums.split(/[,、]/).map(n => prefix + n.trim()).join(', ')
+  );
+  return normalized.split(/[,、·]/).map(s => s.trim()).filter(Boolean);
+}
+
+function renderOps(p) {
+  if (p.opsNotes.length === 0) {
+    return `<div class="empty-state">운영 메모가 없습니다.<br><span style="font-size:12px;color:#aaa">"담당" / "행동요령" 컬럼에 내용이 있어야 카드로 표시됩니다.</span></div>`;
+  }
+
+  // 사람별 카운트
+  const peopleCount = new Map();
+  p.opsNotes.forEach(n => {
+    splitStaff(n.staff).forEach(name => {
+      peopleCount.set(name, (peopleCount.get(name) || 0) + 1);
+    });
+  });
+  // 등장 빈도 내림차순, 동일 빈도면 이름순
+  const people = [...peopleCount.keys()].sort((a, b) => {
+    const d = peopleCount.get(b) - peopleCount.get(a);
+    return d !== 0 ? d : a.localeCompare(b, 'ko');
+  });
+
+  // 필터 바 (오른쪽 끝에 뷰 모드 토글)
+  let filterBar = `<div class="staff-filter">
+    <span class="label">담당자별 필터:</span>
+    <button class="staff-chip ${currentStaffFilter === null ? 'active' : ''}" data-staff="">
+      전체 <span class="cnt">${p.opsNotes.length}</span>
+    </button>`;
+  for (const name of people) {
+    const active = currentStaffFilter === name ? 'active' : '';
+    filterBar += `<button class="staff-chip ${active}" data-staff="${escapeAttr(name)}">
+      ${escapeHtml(name)} <span class="cnt">${peopleCount.get(name)}</span>
+    </button>`;
+  }
+  filterBar += `<div class="ops-mode-toggle">
+    <button class="${opsViewMode === 'grid' ? 'active' : ''}" data-ops-mode="grid">그리드</button>
+    <button class="${opsViewMode === 'flow' ? 'active' : ''}" data-ops-mode="flow">흐름</button>
+  </div>`;
+  filterBar += `</div>`;
+
+  // 필터된 카드 (시간순)
+  const filtered = (currentStaffFilter
+      ? p.opsNotes.filter(n => splitStaff(n.staff).includes(currentStaffFilter))
+      : p.opsNotes
+    ).slice().sort((a, b) => a.startMin - b.startMin);
+
+  if (filtered.length === 0) {
+    return filterBar + `<div class="empty-state">${escapeHtml(currentStaffFilter)}의 작업이 없습니다.</div>`;
+  }
+
+  if (opsViewMode === 'flow') {
+    return filterBar + renderOpsFlow(filtered);
+  }
+
+  // 기본: 그리드 뷰
+  const cards = filtered.map(n => `
+    <div class="ops-card">
+      <div class="time">${formatTime(n.startMin)} ~ ${formatTime(n.endMin)}</div>
+      ${n.staff ? `<div class="staff">${renderStaffLine(n.staff)}</div>` : ''}
+      <div class="note">${escapeHtml(n.note)}</div>
+    </div>
+  `).join('');
+  return filterBar + `<div class="ops-cards">${cards}</div>`;
+}
+
+function renderOpsFlow(notes) {
+  let html = '<div class="ops-flow">';
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i];
+    html += `<div class="flow-step">
+      <div class="ops-card">
+        <div class="time">${formatTime(n.startMin)} ~ ${formatTime(n.endMin)}</div>
+        ${n.staff ? `<div class="staff">${renderStaffLine(n.staff)}</div>` : ''}
+        <div class="note">${escapeHtml(n.note)}</div>
+      </div>
+    </div>`;
+    // 다음 작업까지 공백 시간 (1인 필터일 때만 의미 있음)
+    const next = notes[i + 1];
+    if (currentStaffFilter && next) {
+      const gap = next.startMin - n.endMin;
+      if (gap > 0) {
+        html += `<div class="flow-gap">↓ ${formatTime(n.endMin)} ~ ${formatTime(next.startMin)} (${gap}분 공백)</div>`;
+      }
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderStaffLine(staff) {
+  if (!currentStaffFilter) return escapeHtml(staff);
+  const names = splitStaff(staff);
+  return names.map(n => n === currentStaffFilter
+    ? `<b style="color:#2c6ef2">${escapeHtml(n)}</b>`
+    : `<span style="color:#aaa">${escapeHtml(n)}</span>`
+  ).join(', ');
+}
+
+// 칩 / 뷰모드 클릭 처리 (이벤트 위임 — content가 매번 innerHTML로 교체되므로)
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.staff-chip');
+  if (chip) {
+    const name = chip.dataset.staff;
+    currentStaffFilter = name === '' ? null : name;
+    renderView();
+    return;
+  }
+  const modeBtn = e.target.closest('[data-ops-mode]');
+  if (modeBtn) {
+    opsViewMode = modeBtn.dataset.opsMode;
+    renderView();
+  }
+});
+</script>
+
+</body>
+</html>
