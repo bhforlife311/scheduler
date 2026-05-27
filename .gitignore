@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Claude Code 개인 설정
+.claude/
+
+# 생성된 시간표 (입력 config만 버전관리)
+*.xlsx
+!sample_schedule.xlsx
+
+# IDE/에디터
+.vscode/
+.idea/
+*.swp
+.DS_Store
