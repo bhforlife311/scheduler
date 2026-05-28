@@ -40,14 +40,19 @@ SLOT_MIN = 5  # 5분 슬롯 단위 (visualizer.html과 동일)
 @dataclass(frozen=True)
 class Technique:
     name: str
-    assessors: int        # 한 세션의 위원 수 (a_k)
-    candidates: int       # 한 세션의 대상자 수 (c_k)
-    duration_min: int
+    assessors: int                # 한 세션의 위원 수 (a_k)
+    candidates: int               # 한 세션의 대상자 수 (c_k)
+    prep_duration_min: int        # 숙지 시간 (그룹 전체가 숙지실에서, 위원 없음)
+    eval_duration_min: int        # 평가 시간 (그룹원 분산, 위원과 평가)
 
     @property
     def load_per_candidate(self) -> float:
         """대상자 1명이 이 기법을 받을 때 발생시키는 위원 세션 부하 = a/c."""
         return self.assessors / self.candidates
+
+    @property
+    def total_duration_min(self) -> int:
+        return self.prep_duration_min + self.eval_duration_min
 
 
 @dataclass(frozen=True)
@@ -73,12 +78,14 @@ class Config:
     total_candidates: int
     techniques: list[Technique]
     start_time_min: int               # 9:00 → 540
-    transition_min: int
+    transition_min: int               # 기법 → 기법 이동 (평가 끝 → 다음 기법 숙지 시작 사이)
+    prep_to_eval_transition_min: int  # 숙지 → 평가 이동 (같은 기법 안에서)
     lunch_min: int
     lunch_window: tuple[int, int]     # (start_min, end_min)
     assessor_mode: str                # 'universal' | 'specialized'
     assessor_count_by_technique: dict[str, int]
-    rooms: list[Room]
+    rooms: list[Room]                 # 평가실
+    prep_rooms: list[Room]            # 숙지실
     waiting_rooms: list[WaitingRoom]
 
     @property
@@ -115,15 +122,24 @@ def load_config(path: str | Path) -> Config:
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    techniques = [
-        Technique(
-            name=t["name"],
-            assessors=int(t["assessors"]),
-            candidates=int(t["candidates"]),
-            duration_min=int(t["duration_min"]),
+    techniques = []
+    for t in raw["techniques"]:
+        # 하위호환: 옛 포맷은 duration_min 하나만 있었음 → eval로 매핑하고 prep=0
+        if "duration_min" in t and "eval_duration_min" not in t:
+            prep_d = 0
+            eval_d = int(t["duration_min"])
+        else:
+            prep_d = int(t.get("prep_duration_min", 0))
+            eval_d = int(t.get("eval_duration_min", 0))
+        techniques.append(
+            Technique(
+                name=t["name"],
+                assessors=int(t["assessors"]),
+                candidates=int(t["candidates"]),
+                prep_duration_min=prep_d,
+                eval_duration_min=eval_d,
+            )
         )
-        for t in raw["techniques"]
-    ]
     rooms = [
         Room(
             name=r["name"],
@@ -132,6 +148,15 @@ def load_config(path: str | Path) -> Config:
             zone=r["zone"],
         )
         for r in raw["rooms"]
+    ]
+    prep_rooms = [
+        Room(
+            name=r["name"],
+            supported=tuple(r["supported"]),
+            capacity=int(r["capacity"]),
+            zone=r["zone"],
+        )
+        for r in raw.get("prep_rooms", [])
     ]
     waiting_rooms = [
         WaitingRoom(name=w["name"], zone=w["zone"])
@@ -149,11 +174,13 @@ def load_config(path: str | Path) -> Config:
         techniques=techniques,
         start_time_min=parse_time_str(raw.get("start_time", "09:00")),
         transition_min=int(raw.get("transition_min", 10)),
+        prep_to_eval_transition_min=int(raw.get("prep_to_eval_transition_min", 5)),
         lunch_min=int(raw.get("lunch_min", 60)),
         lunch_window=lunch_window,
         assessor_mode=raw.get("assessor_mode", "universal"),
         assessor_count_by_technique=raw.get("assessor_count_by_technique", {}),
         rooms=rooms,
+        prep_rooms=prep_rooms,
         waiting_rooms=waiting_rooms,
     )
 
@@ -168,8 +195,16 @@ def _validate_config(cfg: Config) -> None:
     if not cfg.techniques:
         errs.append("techniques 가 비어있음")
     for t in cfg.techniques:
-        if t.assessors <= 0 or t.candidates <= 0 or t.duration_min <= 0:
-            errs.append(f"기법 '{t.name}' 의 값이 비정상")
+        if t.assessors <= 0 or t.candidates <= 0:
+            errs.append(f"기법 '{t.name}' 의 위원/대상자 수가 비정상")
+        if t.prep_duration_min < 0 or t.eval_duration_min < 0:
+            errs.append(f"기법 '{t.name}' 의 소요시간이 음수")
+        if t.total_duration_min <= 0:
+            errs.append(f"기법 '{t.name}' 의 총 소요시간이 0 이하 (숙지+평가 ≥ 5분)")
+    # 숙지 시간이 있는데 숙지실이 없으면 경고
+    needs_prep = any(t.prep_duration_min > 0 for t in cfg.techniques)
+    if needs_prep and not cfg.prep_rooms:
+        errs.append("숙지 시간이 있는 기법이 있는데 prep_rooms 가 비어있음")
     if cfg.assessor_mode not in ("universal", "specialized"):
         errs.append(f"assessor_mode 는 'universal' 또는 'specialized'")
     if cfg.assessor_mode == "specialized":
@@ -302,10 +337,11 @@ class Group:
 @dataclass
 class Session:
     technique: str
+    phase: str                        # 'prep' (숙지) | 'eval' (평가)
     group_idx: int
     group_name: str
     candidate_ids: list[int]
-    assessor_ids: list[int]
+    assessor_ids: list[int]           # 숙지 단계에는 빈 리스트
     room: str
     start_min: int
     end_min: int
@@ -333,6 +369,7 @@ class State:
     # 자원 점유 인터벌: (start, end, owner) — 시간 겹침 검사용
     assessor_busy: list[list[tuple[int, int]]] = field(default_factory=list)
     room_busy: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
+    prep_room_busy: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
     # zone i 동안 group_idx 가 점유 — (start, end, gidx)
     zone_busy: dict[str, list[tuple[int, int, int]]] = field(default_factory=dict)
     # 점심은 동시 1팀만 — 단일 인터벌 리스트
@@ -361,12 +398,15 @@ def init_state(cfg: Config, s: int, G: int, num_assessors: int) -> State:
                 remaining_techniques={t.name for t in cfg.techniques},
             )
         )
+    # zone_busy 키는 평가실 + 숙지실의 모든 zone
+    all_zones = {r.zone for r in cfg.rooms} | {r.zone for r in cfg.prep_rooms}
     state = State(
         cfg=cfg, s=s, G=G, num_assessors=num_assessors, groups=groups,
         assessor_history=[set() for _ in range(num_assessors)],
         assessor_busy=[[] for _ in range(num_assessors)],
         room_busy={r.name: [] for r in cfg.rooms},
-        zone_busy={r.zone: [] for r in cfg.rooms},
+        prep_room_busy={r.name: [] for r in cfg.prep_rooms},
+        zone_busy={z: [] for z in all_zones},
     )
     return state
 
@@ -399,6 +439,22 @@ def _find_free_rooms(
         found.append(room.name)
         if len(found) == count:
             return found
+    return None
+
+
+def _find_free_prep_room(
+    cfg: Config, state: State, technique: str, capacity_needed: int,
+    start: int, end: int,
+) -> Room | None:
+    """그룹 전체(capacity_needed명)가 들어갈 숙지실 1개를 찾음."""
+    for room in cfg.prep_rooms:
+        if not room.supports(technique):
+            continue
+        if room.capacity < capacity_needed:
+            continue
+        if any(_overlaps(start, end, bs, be) for bs, be in state.prep_room_busy[room.name]):
+            continue
+        return room
     return None
 
 
@@ -489,83 +545,131 @@ def _zone_conflict(
 def _try_schedule_session(
     state: State, group: Group, technique_name: str, start_min: int
 ) -> bool:
-    """그룹 g가 시각 start_min 에 technique 을 시작할 수 있으면 예약하고 True 반환."""
+    """그룹 g가 시각 start_min 에 technique 을 시작할 수 있으면 예약하고 True 반환.
+
+    한 기법 = 2단계(숙지 → 평가)로 진행. 둘 다 예약 성공해야 함 (원자적).
+    숙지 시간이 0이면 숙지 단계 생략, 평가 시간이 0이면 평가 단계 생략.
+    """
     cfg = state.cfg
     tech = next(t for t in cfg.techniques if t.name == technique_name)
 
     s = state.s
-    if s % tech.candidates != 0:
+    if tech.eval_duration_min > 0 and s % tech.candidates != 0:
         return False  # 그룹 크기가 c로 나눠떨어져야 (예: 집단토론 s%3==0)
-    parallel_sessions = s // tech.candidates    # 그룹원이 분산될 세션 수
-    rooms_needed = parallel_sessions
-    assessors_per_session = tech.assessors
-    total_assessors = parallel_sessions * assessors_per_session
-    end_min = start_min + tech.duration_min
 
-    # 1) 방 확보
-    rooms = _find_free_rooms(cfg, state, technique_name, rooms_needed, start_min, end_min)
-    if rooms is None:
-        return False
+    # === 시간 계획 ===
+    prep_start = start_min
+    prep_end = prep_start + tech.prep_duration_min
+    if tech.prep_duration_min > 0 and tech.eval_duration_min > 0:
+        eval_start = prep_end + cfg.prep_to_eval_transition_min
+    else:
+        eval_start = prep_end  # 둘 중 하나만 있으면 이동시간 없음
+    eval_end = eval_start + tech.eval_duration_min
 
-    # 2) zone 확인 — 선택된 모든 방의 zone이 다른 그룹과 충돌 없어야
-    selected_rooms = [r for r in cfg.rooms if r.name in rooms]
-    for room in selected_rooms:
-        if _zone_conflict(state, room.zone, start_min, end_min, group.idx):
+    # === 숙지 단계: 방·zone 확인 ===
+    prep_room_obj: Room | None = None
+    if tech.prep_duration_min > 0:
+        members_count = len(group.candidate_ids)
+        if members_count == 0:
+            # 그룹원 0 — 의미 없음
+            group.remaining_techniques.discard(technique_name)
+            return True
+        prep_room_obj = _find_free_prep_room(
+            cfg, state, technique_name, members_count, prep_start, prep_end
+        )
+        if prep_room_obj is None:
+            return False
+        if _zone_conflict(state, prep_room_obj.zone, prep_start, prep_end, group.idx):
             return False
 
-    # 3) 그룹원을 parallel_sessions 개로 분할 (빈 chunk 제거)
-    members = group.candidate_ids[:]
+    # === 평가 단계: 방·zone·위원 확인 ===
+    eval_rooms: list[str] = []
     cand_chunks: list[list[int]] = []
-    for i in range(parallel_sessions):
-        chunk = members[i * tech.candidates : (i + 1) * tech.candidates]
-        if chunk:
-            cand_chunks.append(chunk)
-    if not cand_chunks:
-        # 그룹원 0 — 이 기법은 이 그룹에 의미 없음. 그냥 완료 처리.
-        group.remaining_techniques.discard(technique_name)
-        return True
-    actual_rooms_needed = len(cand_chunks)
-    if actual_rooms_needed > len(rooms):
-        # rooms 다시 찾기 (위에서 parallel_sessions 기준이었음)
-        rooms = _find_free_rooms(cfg, state, technique_name, actual_rooms_needed, start_min, end_min)
-        if rooms is None:
+    chunk_assessors: list[list[int]] = []
+
+    if tech.eval_duration_min > 0:
+        parallel_sessions = s // tech.candidates
+        members = group.candidate_ids[:]
+        for i in range(parallel_sessions):
+            chunk = members[i * tech.candidates : (i + 1) * tech.candidates]
+            if chunk:
+                cand_chunks.append(chunk)
+        if not cand_chunks:
+            group.remaining_techniques.discard(technique_name)
+            return True
+
+        rooms_needed = len(cand_chunks)
+        rooms_found = _find_free_rooms(
+            cfg, state, technique_name, rooms_needed, eval_start, eval_end
+        )
+        if rooms_found is None:
             return False
+        eval_rooms = rooms_found
 
-    # 4) 위원 매칭 — 백트래킹 (chunk 간 겹침 없음, chunk 내 클린)
-    free_pool = _free_assessors_in_window(cfg, state, technique_name, start_min, end_min)
-    chunk_assessors = _match_chunks_with_backtrack(
-        state, cand_chunks, free_pool, assessors_per_session
-    )
-    if chunk_assessors is None:
-        return False
-    session_assignments: list[tuple[str, list[int], list[int]]] = [
-        (rooms[i], cand_chunks[i], chunk_assessors[i]) for i in range(len(cand_chunks))
-    ]
+        # zone 확인 — 평가실 zone들이 다른 그룹과 충돌 없어야
+        selected_rooms = [r for r in cfg.rooms if r.name in eval_rooms]
+        for room in selected_rooms:
+            if _zone_conflict(state, room.zone, eval_start, eval_end, group.idx):
+                return False
 
-    # 5) 세션 등록
-    for room_name, sess_cands, sess_assessors in session_assignments:
+        # 위원 매칭
+        free_pool = _free_assessors_in_window(
+            cfg, state, technique_name, eval_start, eval_end
+        )
+        matched = _match_chunks_with_backtrack(
+            state, cand_chunks, free_pool, tech.assessors
+        )
+        if matched is None:
+            return False
+        chunk_assessors = matched
+
+    # === 모든 검증 통과 — 세션 등록 (commit) ===
+    if prep_room_obj is not None:
         sess = Session(
             technique=technique_name,
+            phase="prep",
             group_idx=group.idx,
             group_name=group.name,
-            candidate_ids=sess_cands,
-            assessor_ids=sess_assessors,
-            room=room_name,
-            start_min=start_min,
-            end_min=end_min,
+            candidate_ids=group.candidate_ids[:],
+            assessor_ids=[],
+            room=prep_room_obj.name,
+            start_min=prep_start,
+            end_min=prep_end,
         )
         state.sessions.append(sess)
-        state.room_busy[room_name].append((start_min, end_min))
-        room = next(r for r in cfg.rooms if r.name == room_name)
-        state.zone_busy.setdefault(room.zone, []).append((start_min, end_min, group.idx))
-        for aid in sess_assessors:
-            state.assessor_busy[aid].append((start_min, end_min))
-            for cid in sess_cands:
-                state.assessor_history[aid].add(cid)
+        state.prep_room_busy[prep_room_obj.name].append((prep_start, prep_end))
+        state.zone_busy.setdefault(prep_room_obj.zone, []).append(
+            (prep_start, prep_end, group.idx)
+        )
 
-    # 6) 그룹 상태 갱신
+    if tech.eval_duration_min > 0:
+        for i, room_name in enumerate(eval_rooms):
+            sess_cands = cand_chunks[i]
+            sess_assessors = chunk_assessors[i]
+            sess = Session(
+                technique=technique_name,
+                phase="eval",
+                group_idx=group.idx,
+                group_name=group.name,
+                candidate_ids=sess_cands,
+                assessor_ids=sess_assessors,
+                room=room_name,
+                start_min=eval_start,
+                end_min=eval_end,
+            )
+            state.sessions.append(sess)
+            state.room_busy[room_name].append((eval_start, eval_end))
+            room = next(r for r in cfg.rooms if r.name == room_name)
+            state.zone_busy.setdefault(room.zone, []).append(
+                (eval_start, eval_end, group.idx)
+            )
+            for aid in sess_assessors:
+                state.assessor_busy[aid].append((eval_start, eval_end))
+                for cid in sess_cands:
+                    state.assessor_history[aid].add(cid)
+
     group.remaining_techniques.discard(technique_name)
-    group.busy_until = end_min + cfg.transition_min
+    group.busy_until = eval_end + cfg.transition_min
     return True
 
 
@@ -622,8 +726,8 @@ def schedule_one(cfg: Config, sg: SgCandidate, debug: bool = False) -> State | N
             current = max(next_t, current + SLOT_MIN)
             continue
 
-        # 가장 남은 기법 많은 (가장 일 많이 남은) 그룹부터
-        idle.sort(key=lambda g: (-len(g.remaining_techniques), g.idx))
+        # 점심 안 먹은 그룹 우선, 그 다음 남은 기법 많은 순
+        idle.sort(key=lambda g: (g.lunch_done, -len(g.remaining_techniques), g.idx))
         progress_this_round = False
 
         for g in idle:
@@ -643,7 +747,7 @@ def schedule_one(cfg: Config, sg: SgCandidate, debug: bool = False) -> State | N
                 tech_by_name = {t.name: t for t in cfg.techniques}
                 techs_sorted = sorted(
                     g.remaining_techniques,
-                    key=lambda tn: (-tech_by_name[tn].assessors, -tech_by_name[tn].duration_min),
+                    key=lambda tn: (-tech_by_name[tn].assessors, -tech_by_name[tn].total_duration_min),
                 )
                 for tn in techs_sorted:
                     if _try_schedule_session(state, g, tn, current):
@@ -795,10 +899,10 @@ def write_xlsx(state: State, cfg: Config, output_path: Path) -> None:
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.font = Font(size=10)
 
-    # 세션 → (group_idx, technique, start, end) 로 묶어 한 셀로 표현
-    grouped: dict[tuple[int, str, int, int], list[Session]] = defaultdict(list)
+    # 세션 → (group_idx, technique, phase, start, end) 로 묶어 한 셀로 표현
+    grouped: dict[tuple[int, str, str, int, int], list[Session]] = defaultdict(list)
     for sess in state.sessions:
-        grouped[(sess.group_idx, sess.technique, sess.start_min, sess.end_min)].append(sess)
+        grouped[(sess.group_idx, sess.technique, sess.phase, sess.start_min, sess.end_min)].append(sess)
 
     # 활동별 배경색 (visualizer.html 의 ACTIVITY_COLORS 참고)
     activity_color = {
@@ -831,14 +935,18 @@ def write_xlsx(state: State, cfg: Config, output_path: Path) -> None:
         if first < last:
             ws.merge_cells(start_row=first, start_column=col, end_row=last, end_column=col)
 
-    for (gidx, tech_name, smin, emin), sess_list in grouped.items():
+    for (gidx, tech_name, phase, smin, emin), sess_list in grouped.items():
         rooms_in = [s.room for s in sess_list]
-        # 같은 방이 반복되면 dedupe + 정렬
         rooms_text = ", ".join(sorted(set(rooms_in)))
         duration = emin - smin
         col = COL_GROUPS_START + gidx
-        text = f"{tech_name}\n{rooms_text} ({duration})"
-        fill_cell(col, smin, emin, text, pick_color(tech_name))
+        label = "(숙지)" if phase == "prep" else "(평가)"
+        text = f"{tech_name} {label}\n{rooms_text} ({duration})"
+        # 숙지는 더 옅은 색, 평가는 진한 색
+        color = pick_color(tech_name)
+        if phase == "prep":
+            color = "E8EAF6"   # 옅은 회색 톤
+        fill_cell(col, smin, emin, text, color)
 
     for l in state.lunches:
         col = COL_GROUPS_START + l.group_idx
@@ -869,8 +977,10 @@ def write_xlsx(state: State, cfg: Config, output_path: Path) -> None:
     for r, t in enumerate(time_slots):
         ws2.cell(row=HEADER_ROW + 1 + r, column=1, value=format_time_min(t)).alignment = Alignment(horizontal="center")
 
-    # 위원별 세션
+    # 위원별 세션 (숙지 단계는 위원 없으니 자동 제외)
     for sess in state.sessions:
+        if sess.phase != "eval":
+            continue
         for aid in sess.assessor_ids:
             col = 2 + aid
             first = HEADER_ROW + 1 + slot_idx(sess.start_min)
@@ -907,10 +1017,14 @@ def write_xlsx(state: State, cfg: Config, output_path: Path) -> None:
             col = 2 + cid
             first = HEADER_ROW + 1 + slot_idx(sess.start_min)
             last = HEADER_ROW + 1 + slot_idx(sess.end_min) - 1
-            text = f"{sess.technique}\n{sess.room}"
+            label = "(숙지)" if sess.phase == "prep" else "(평가)"
+            text = f"{sess.technique} {label}\n{sess.room}"
+            color = pick_color(sess.technique)
+            if sess.phase == "prep":
+                color = "E8EAF6"
             cell = ws3.cell(row=first, column=col, value=text)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.fill = PatternFill("solid", fgColor=pick_color(sess.technique))
+            cell.fill = PatternFill("solid", fgColor=color)
             cell.font = Font(size=9)
             if first < last:
                 ws3.merge_cells(start_row=first, start_column=col, end_row=last, end_column=col)
@@ -1001,7 +1115,8 @@ def main() -> int:
         items: list[tuple[int, int, str]] = []
         for s in best.sessions:
             if s.group_idx == g.idx:
-                items.append((s.start_min, s.end_min, f"{s.technique}@{s.room}"))
+                ph = "숙지" if s.phase == "prep" else "평가"
+                items.append((s.start_min, s.end_min, f"{s.technique}({ph})@{s.room}"))
         for l in best.lunches:
             if l.group_idx == g.idx:
                 items.append((l.start_min, l.end_min, "점심"))

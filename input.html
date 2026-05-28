@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>역량평가 시간표 입력 — config 생성</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    margin: 0; padding: 20px 40px;
+    background: #f5f6f8; color: #222;
+    max-width: 1200px; margin-left: auto; margin-right: auto;
+  }
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  .hint { color: #666; font-size: 12px; margin: 4px 0 20px; line-height: 1.6; }
+
+  .section {
+    background: #fff; padding: 16px 20px; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 16px;
+  }
+  .section h2 {
+    margin: 0 0 12px; font-size: 15px; color: #2c6ef2;
+    border-bottom: 1px solid #e8eaf0; padding-bottom: 8px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 10px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #555; }
+  .field input, .field select {
+    padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
+    font-size: 13px; min-width: 100px;
+  }
+  .field input[type="number"] { width: 90px; }
+  .field input[type="time"] { width: 110px; }
+
+  /* 기법 표 */
+  .tech-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tech-table th, .tech-table td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; }
+  .tech-table th { background: #f8f9fb; color: #555; font-weight: 600; }
+  .tech-table input[type="number"] { width: 80px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
+  .tech-table .fixed { color: #888; }
+
+  /* 방/대기실 표 */
+  .dyn-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
+  .dyn-table th, .dyn-table td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; vertical-align: middle; }
+  .dyn-table th { background: #f8f9fb; color: #555; font-weight: 600; font-size: 12px; }
+  .dyn-table input { padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; }
+  .dyn-table input[type="text"] { width: 100%; }
+  .dyn-table input.zone { width: 60px; }
+  .dyn-table input.cap { width: 60px; }
+  .dyn-table .tech-checks label { font-size: 11px; margin-right: 8px; white-space: nowrap; }
+  .dyn-table .del-btn {
+    background: #fff; border: 1px solid #ccc; color: #c33; padding: 2px 8px;
+    border-radius: 3px; cursor: pointer; font-size: 11px;
+  }
+  .dyn-table .del-btn:hover { background: #fee; }
+  .add-btn {
+    background: #fff; border: 1px dashed #2c6ef2; color: #2c6ef2;
+    padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  .add-btn:hover { background: #eef4ff; }
+
+  /* 모드 라디오 */
+  .mode-radio { display: flex; gap: 16px; margin-bottom: 8px; }
+  .mode-radio label { font-size: 13px; cursor: pointer; }
+  .specialized-only { display: none; }
+  body.specialized-mode .specialized-only { display: table-cell; }
+  body.specialized-mode .specialized-only-th { display: table-cell; }
+  .specialized-only-th { display: none; }
+
+  /* 액션 */
+  .action-bar {
+    background: #fff; padding: 16px 20px; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    position: sticky; bottom: 16px; margin-top: 20px;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .action-bar button {
+    padding: 10px 20px; border: none; border-radius: 4px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary { background: #2c6ef2; color: white; }
+  .btn-primary:hover { background: #1e5dd6; }
+  .btn-secondary { background: #f0f2f5; color: #333; }
+  .btn-secondary:hover { background: #e4e7eb; }
+  .preview {
+    flex: 1; font-family: 'Consolas', monospace; font-size: 11px;
+    color: #555; background: #f8f9fb; padding: 6px 10px;
+    border-radius: 4px; max-height: 60px; overflow: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+
+  .small { font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>역량평가 시간표 — 입력 폼</h1>
+<div class="hint">
+  변수를 입력하고 <b>"config.json 다운로드"</b> 버튼을 누르세요.<br/>
+  다운로드된 파일을 <code>scheduler.py</code>에 넘겨서 시간표를 생성합니다:
+  <code>python scheduler.py 다운로드된파일.json -o schedule.xlsx</code>
+</div>
+
+<!-- 1. 기본 정보 -->
+<div class="section">
+  <h2>1. 기본 정보</h2>
+  <div class="row">
+    <div class="field"><label>평가 제목</label><input type="text" id="f-title" value="샘플 역량평가" style="width:260px"></div>
+    <div class="field"><label>총 평가대상자 수</label><input type="number" id="f-total" value="12" min="1"></div>
+    <div class="field"><label>시작 시간</label><input type="time" id="f-start" value="09:00"></div>
+  </div>
+  <div class="row">
+    <div class="field"><label>기법→기법 이동 (분)</label><input type="number" id="f-transition" value="10" min="0"></div>
+    <div class="field"><label>숙지→평가 이동 (분)</label><input type="number" id="f-prep-trans" value="5" min="0"></div>
+    <div class="field"><label>점심시간 길이 (분)</label><input type="number" id="f-lunch" value="60" min="0"></div>
+    <div class="field"><label>점심 시작 가능 시각</label><input type="time" id="f-lunch-start" value="11:00"></div>
+    <div class="field"><label>점심 종료 가능 시각</label><input type="time" id="f-lunch-end" value="14:00"></div>
+  </div>
+</div>
+
+<!-- 2. 평가기법 -->
+<div class="section">
+  <h2>2. 평가기법 선택 (체크된 기법만 평가에 포함)</h2>
+  <table class="tech-table">
+    <thead>
+      <tr>
+        <th style="width:40px">포함</th>
+        <th>기법명</th>
+        <th>위원수/세션</th>
+        <th>대상자수/세션</th>
+        <th>숙지시간 (분)</th>
+        <th>평가시간 (분)</th>
+      </tr>
+    </thead>
+    <tbody id="tech-body">
+      <!-- 5개 기법 자동 생성 -->
+    </tbody>
+  </table>
+  <div class="small">
+    숙지시간 = 그룹 전체가 숙지실에 모여서 자료 숙지하는 시간 (위원 없음).<br/>
+    평가시간 = 그룹원이 평가실에 흩어져서 위원과 평가하는 시간.<br/>
+    숙지가 없는 기법은 0으로 두세요.
+  </div>
+</div>
+
+<!-- 3. 평가위원 -->
+<div class="section">
+  <h2>3. 평가위원 운영 방식</h2>
+  <div class="mode-radio">
+    <label><input type="radio" name="assessor_mode" value="universal" checked> 만능 (모든 위원이 모든 기법 가능)</label>
+    <label><input type="radio" name="assessor_mode" value="specialized"> 기법별 분리 (기법마다 위원 풀 따로)</label>
+  </div>
+  <div id="specialized-config" style="display:none">
+    <div class="small" style="margin-bottom:6px">기법별 위원 수를 입력하세요 (분리 모드에서만 사용):</div>
+    <div class="row" id="specialized-counts"></div>
+  </div>
+</div>
+
+<!-- 4. 평가실 -->
+<div class="section">
+  <h2>4. 평가실 목록</h2>
+  <table class="dyn-table">
+    <thead>
+      <tr>
+        <th>방 이름</th>
+        <th>가능 기법</th>
+        <th>수용 인원</th>
+        <th>Zone</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="rooms-body"></tbody>
+  </table>
+  <button class="add-btn" onclick="addRoom()">+ 평가실 추가</button>
+  <div class="small" style="margin-top:6px">
+    Zone: 같은 zone에 다른 그룹이 동시에 들어가지 못함. 복도/대기실을 공유하는 방들끼리 같은 zone으로 묶으세요.
+  </div>
+</div>
+
+<!-- 5. 숙지실 -->
+<div class="section">
+  <h2>5. 숙지실 목록</h2>
+  <div class="row" style="margin-bottom:8px">
+    <label class="small"><input type="checkbox" id="f-inbasket-prep-separate"> 서류함은 별도 숙지실에서 진행</label>
+  </div>
+  <table class="dyn-table">
+    <thead>
+      <tr>
+        <th>숙지실 이름</th>
+        <th>가능 기법</th>
+        <th>수용 인원</th>
+        <th>Zone</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="prep-rooms-body"></tbody>
+  </table>
+  <button class="add-btn" onclick="addPrepRoom()">+ 숙지실 추가</button>
+  <div class="small" style="margin-top:6px">
+    숙지실은 그룹 전체가 들어가야 하므로 수용 인원이 그룹 크기 이상이어야 합니다 (보통 6명 이상).<br/>
+    "서류함 별도 숙지" 체크 시: 일부 숙지실엔 서류함만, 나머진 서류함 제외 기법만 체크하세요.
+  </div>
+</div>
+
+<!-- 6. 대기실 -->
+<div class="section">
+  <h2>6. 그룹별 대기실 목록</h2>
+  <table class="dyn-table">
+    <thead>
+      <tr>
+        <th>대기실 이름</th>
+        <th>Zone</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="waiting-body"></tbody>
+  </table>
+  <button class="add-btn" onclick="addWaiting()">+ 대기실 추가</button>
+  <div class="small" style="margin-top:6px">
+    대기실 수는 그룹 수(아웃풋) 이상이어야 합니다. 부족하면 알고리즘이 후보를 못 찾을 수 있어요.
+  </div>
+</div>
+
+<!-- 액션 바 -->
+<div class="action-bar">
+  <button class="btn-secondary" onclick="loadSample()">샘플 불러오기</button>
+  <button class="btn-secondary" onclick="updatePreview()">미리보기 갱신</button>
+  <div class="preview" id="preview">아직 생성되지 않음</div>
+  <button class="btn-primary" onclick="downloadConfig()">config.json 다운로드</button>
+</div>
+
+<script>
+// ───── 기법 정의 (고정 메타) ─────
+const TECHNIQUES = [
+  { key: 'in_basket',   name: '서류함',         a: 1, c: 1, prep: 30, evald: 30, default_on: true },
+  { key: 'presentation', name: '구두발표',       a: 1, c: 1, prep: 30, evald: 30, default_on: true },
+  { key: 'role_1to1',   name: '1대1역할수행',    a: 1, c: 1, prep: 20, evald: 20, default_on: true },
+  { key: 'role_1to2',   name: '1대2역할수행',    a: 2, c: 1, prep: 20, evald: 20, default_on: false },
+  { key: 'group_disc',  name: '집단토론',        a: 3, c: 3, prep: 30, evald: 50, default_on: true },
+];
+
+const $ = id => document.getElementById(id);
+
+// ───── 기법 행 렌더 ─────
+function renderTechniques() {
+  const tbody = $('tech-body');
+  tbody.innerHTML = '';
+  for (const t of TECHNIQUES) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="checkbox" class="tech-on" data-key="${t.key}" ${t.default_on ? 'checked' : ''}></td>
+      <td>${t.name}</td>
+      <td class="fixed">${t.a}</td>
+      <td class="fixed">${t.c}</td>
+      <td><input type="number" class="tech-prep" data-key="${t.key}" value="${t.prep}" min="0" step="5"></td>
+      <td><input type="number" class="tech-eval" data-key="${t.key}" value="${t.evald}" min="0" step="5"></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  // 체크박스 변경 시 specialized 모드 위원수 입력 다시 그리기
+  tbody.querySelectorAll('.tech-on').forEach(cb => {
+    cb.addEventListener('change', renderSpecializedCounts);
+  });
+}
+
+// ───── 평가위원 모드 ─────
+function setupAssessorMode() {
+  document.querySelectorAll('input[name="assessor_mode"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const mode = document.querySelector('input[name="assessor_mode"]:checked').value;
+      if (mode === 'specialized') {
+        document.body.classList.add('specialized-mode');
+        $('specialized-config').style.display = 'block';
+        renderSpecializedCounts();
+      } else {
+        document.body.classList.remove('specialized-mode');
+        $('specialized-config').style.display = 'none';
+      }
+    });
+  });
+}
+
+function renderSpecializedCounts() {
+  const div = $('specialized-counts');
+  div.innerHTML = '';
+  for (const t of TECHNIQUES) {
+    const cb = document.querySelector(`.tech-on[data-key="${t.key}"]`);
+    if (!cb || !cb.checked) continue;
+    const f = document.createElement('div');
+    f.className = 'field';
+    f.innerHTML = `
+      <label>${t.name}</label>
+      <input type="number" class="spec-count" data-key="${t.key}" value="3" min="1">
+    `;
+    div.appendChild(f);
+  }
+}
+
+// ───── 평가실 동적 행 ─────
+let roomIdx = 0;
+function addRoom(preset = null) {
+  roomIdx++;
+  const tbody = $('rooms-body');
+  const tr = document.createElement('tr');
+  tr.dataset.idx = roomIdx;
+  const techChecks = TECHNIQUES.map(t =>
+    `<label><input type="checkbox" class="r-tech" data-tech="${t.name}"
+       ${preset?.supported?.includes(t.name) ? 'checked' : ''}>${t.name}</label>`
+  ).join('');
+  tr.innerHTML = `
+    <td><input type="text" class="r-name" value="${preset?.name || '평가실 ' + roomIdx}"></td>
+    <td class="tech-checks">${techChecks}</td>
+    <td><input type="number" class="cap" value="${preset?.capacity || 2}" min="1"></td>
+    <td><input type="text" class="zone" value="${preset?.zone || 'A'}"></td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove()">삭제</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ───── 숙지실 동적 행 ─────
+let prepIdx = 0;
+function addPrepRoom(preset = null) {
+  prepIdx++;
+  const tbody = $('prep-rooms-body');
+  const tr = document.createElement('tr');
+  const techChecks = TECHNIQUES.map(t =>
+    `<label><input type="checkbox" class="p-tech" data-tech="${t.name}"
+       ${preset?.supported?.includes(t.name) !== false ? 'checked' : ''}>${t.name}</label>`
+  ).join('');
+  tr.innerHTML = `
+    <td><input type="text" class="p-name" value="${preset?.name || '숙지실 ' + prepIdx}"></td>
+    <td class="tech-checks">${techChecks}</td>
+    <td><input type="number" class="cap" value="${preset?.capacity || 6}" min="1"></td>
+    <td><input type="text" class="zone" value="${preset?.zone || 'P' + prepIdx}"></td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove()">삭제</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ───── 대기실 동적 행 ─────
+let waitIdx = 0;
+function addWaiting(preset = null) {
+  waitIdx++;
+  const tbody = $('waiting-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="w-name" value="${preset?.name || '대기실 ' + waitIdx}"></td>
+    <td><input type="text" class="zone" value="${preset?.zone || 'W' + String.fromCharCode(64 + waitIdx)}"></td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove()">삭제</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ───── 샘플 데이터 불러오기 ─────
+function loadSample() {
+  $('f-title').value = '샘플 역량평가';
+  $('f-total').value = 12;
+  $('f-start').value = '09:00';
+  $('f-transition').value = 10;
+  $('f-prep-trans').value = 5;
+  $('f-lunch').value = 60;
+  $('f-lunch-start').value = '11:00';
+  $('f-lunch-end').value = '14:00';
+  // 방 초기화
+  $('rooms-body').innerHTML = ''; roomIdx = 0;
+  const oneTo1Set = ['서류함', '구두발표', '1대1역할수행'];
+  for (let i = 1; i <= 6; i++) {
+    const zone = ['A','A','B','B','C','C'][i-1];
+    addRoom({ name: '평가실 ' + i, supported: oneTo1Set, capacity: 2, zone });
+  }
+  addRoom({ name: '회의실 1', supported: ['집단토론'], capacity: 6, zone: 'D' });
+  addRoom({ name: '회의실 2', supported: ['집단토론'], capacity: 6, zone: 'D' });
+  // 숙지실 초기화
+  $('prep-rooms-body').innerHTML = ''; prepIdx = 0;
+  const allTech = ['서류함', '구두발표', '1대1역할수행', '1대2역할수행', '집단토론'];
+  for (let i = 1; i <= 3; i++) {
+    addPrepRoom({ name: '숙지실 ' + i, supported: allTech, capacity: 6, zone: 'P' + i });
+  }
+  // 대기실 초기화
+  $('waiting-body').innerHTML = ''; waitIdx = 0;
+  for (let i = 1; i <= 6; i++) {
+    addWaiting({ name: '대기실 ' + i, zone: 'W' + String.fromCharCode(64 + i) });
+  }
+  $('f-inbasket-prep-separate').checked = false;
+  updatePreview();
+}
+
+// ───── config 생성 ─────
+function buildConfig() {
+  const techniques = [];
+  for (const t of TECHNIQUES) {
+    const cb = document.querySelector(`.tech-on[data-key="${t.key}"]`);
+    if (!cb.checked) continue;
+    const prep = parseInt(document.querySelector(`.tech-prep[data-key="${t.key}"]`).value, 10);
+    const evald = parseInt(document.querySelector(`.tech-eval[data-key="${t.key}"]`).value, 10);
+    techniques.push({
+      name: t.name, assessors: t.a, candidates: t.c,
+      prep_duration_min: prep, eval_duration_min: evald,
+    });
+  }
+
+  const mode = document.querySelector('input[name="assessor_mode"]:checked').value;
+  const assessor_count_by_technique = {};
+  if (mode === 'specialized') {
+    document.querySelectorAll('.spec-count').forEach(input => {
+      const key = input.dataset.key;
+      const t = TECHNIQUES.find(x => x.key === key);
+      if (t) assessor_count_by_technique[t.name] = parseInt(input.value, 10);
+    });
+  }
+
+  const rooms = [];
+  document.querySelectorAll('#rooms-body tr').forEach(tr => {
+    const name = tr.querySelector('.r-name').value.trim();
+    if (!name) return;
+    const supported = [];
+    tr.querySelectorAll('.r-tech').forEach(cb => {
+      if (cb.checked) supported.push(cb.dataset.tech);
+    });
+    const capacity = parseInt(tr.querySelector('.cap').value, 10);
+    const zone = tr.querySelector('.zone').value.trim();
+    rooms.push({ name, supported, capacity, zone });
+  });
+
+  const prep_rooms = [];
+  document.querySelectorAll('#prep-rooms-body tr').forEach(tr => {
+    const name = tr.querySelector('.p-name').value.trim();
+    if (!name) return;
+    const supported = [];
+    tr.querySelectorAll('.p-tech').forEach(cb => {
+      if (cb.checked) supported.push(cb.dataset.tech);
+    });
+    const capacity = parseInt(tr.querySelector('.cap').value, 10);
+    const zone = tr.querySelector('.zone').value.trim();
+    prep_rooms.push({ name, supported, capacity, zone });
+  });
+
+  const waiting_rooms = [];
+  document.querySelectorAll('#waiting-body tr').forEach(tr => {
+    const name = tr.querySelector('.w-name').value.trim();
+    if (!name) return;
+    const zone = tr.querySelector('.zone').value.trim();
+    waiting_rooms.push({ name, zone });
+  });
+
+  return {
+    title: $('f-title').value.trim() || '역량평가',
+    total_candidates: parseInt($('f-total').value, 10),
+    techniques,
+    start_time: $('f-start').value,
+    transition_min: parseInt($('f-transition').value, 10),
+    prep_to_eval_transition_min: parseInt($('f-prep-trans').value, 10),
+    lunch_min: parseInt($('f-lunch').value, 10),
+    lunch_window: [$('f-lunch-start').value, $('f-lunch-end').value],
+    assessor_mode: mode,
+    assessor_count_by_technique,
+    rooms,
+    prep_rooms,
+    waiting_rooms,
+  };
+}
+
+function updatePreview() {
+  const cfg = buildConfig();
+  $('preview').textContent = JSON.stringify(cfg, null, 2);
+}
+
+function downloadConfig() {
+  const cfg = buildConfig();
+  // 검증
+  const errs = [];
+  if (!cfg.total_candidates || cfg.total_candidates < 1) errs.push('총 대상자 수가 비정상');
+  if (cfg.techniques.length === 0) errs.push('최소 1개 기법 선택 필요');
+  if (cfg.rooms.length === 0) errs.push('평가실 1개 이상 필요');
+  const needsPrep = cfg.techniques.some(t => t.prep_duration_min > 0);
+  if (needsPrep && cfg.prep_rooms.length === 0) {
+    errs.push('숙지 시간이 있는 기법이 있는데 숙지실이 없음');
+  }
+  if (cfg.waiting_rooms.length === 0) errs.push('대기실 1개 이상 필요');
+  if (errs.length) {
+    alert('입력 오류:\n- ' + errs.join('\n- '));
+    return;
+  }
+
+  const text = JSON.stringify(cfg, null, 2);
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  // 파일명: 제목 기반
+  const safe = cfg.title.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+  a.download = `${safe}_config.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ───── 서류함 별도 숙지 토글: 자동 분할 셋업 ─────
+function setupInbasketToggle() {
+  const toggle = $('f-inbasket-prep-separate');
+  toggle.addEventListener('change', () => {
+    if (!toggle.checked) return;
+    // 켜졌을 때: 숙지실들을 자동 분할. 첫 절반은 서류함 전용, 나머지는 서류함 제외.
+    const rows = document.querySelectorAll('#prep-rooms-body tr');
+    if (rows.length < 2) {
+      alert('숙지실이 최소 2개 이상이어야 분할 가능합니다.\n먼저 숙지실을 추가하세요.');
+      toggle.checked = false;
+      return;
+    }
+    const half = Math.ceil(rows.length / 2);
+    rows.forEach((tr, idx) => {
+      tr.querySelectorAll('.p-tech').forEach(cb => {
+        const tech = cb.dataset.tech;
+        if (idx < half) {
+          // 서류함 전용
+          cb.checked = (tech === '서류함');
+        } else {
+          // 서류함 제외 모든 기법
+          cb.checked = (tech !== '서류함');
+        }
+      });
+    });
+  });
+}
+
+// ───── 초기화 ─────
+window.addEventListener('DOMContentLoaded', () => {
+  renderTechniques();
+  setupAssessorMode();
+  setupInbasketToggle();
+  loadSample();
+});
+</script>
+
+</body>
+</html>

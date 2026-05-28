@@ -2,15 +2,16 @@
   "title": "샘플 역량평가",
   "total_candidates": 12,
   "techniques": [
-    { "name": "서류함",        "assessors": 1, "candidates": 1, "duration_min": 60 },
-    { "name": "구두발표",      "assessors": 1, "candidates": 1, "duration_min": 30 },
-    { "name": "1대1역할수행",  "assessors": 1, "candidates": 1, "duration_min": 30 },
-    { "name": "집단토론",      "assessors": 3, "candidates": 3, "duration_min": 50 }
+    { "name": "서류함",        "assessors": 1, "candidates": 1, "prep_duration_min": 30, "eval_duration_min": 30 },
+    { "name": "구두발표",      "assessors": 1, "candidates": 1, "prep_duration_min": 30, "eval_duration_min": 30 },
+    { "name": "1대1역할수행",  "assessors": 1, "candidates": 1, "prep_duration_min": 20, "eval_duration_min": 20 },
+    { "name": "집단토론",      "assessors": 3, "candidates": 3, "prep_duration_min": 30, "eval_duration_min": 50 }
   ],
   "start_time": "09:00",
   "transition_min": 10,
+  "prep_to_eval_transition_min": 5,
   "lunch_min": 60,
-  "lunch_window": ["11:30", "13:30"],
+  "lunch_window": ["11:00", "14:00"],
   "assessor_mode": "universal",
   "assessor_count_by_technique": {},
   "rooms": [
@@ -22,6 +23,11 @@
     { "name": "평가실 6", "supported": ["서류함", "구두발표", "1대1역할수행"], "capacity": 2, "zone": "C" },
     { "name": "회의실 1", "supported": ["집단토론"], "capacity": 6, "zone": "D" },
     { "name": "회의실 2", "supported": ["집단토론"], "capacity": 6, "zone": "D" }
+  ],
+  "prep_rooms": [
+    { "name": "숙지실 1", "supported": ["서류함", "구두발표", "1대1역할수행", "집단토론"], "capacity": 6, "zone": "P1" },
+    { "name": "숙지실 2", "supported": ["서류함", "구두발표", "1대1역할수행", "집단토론"], "capacity": 6, "zone": "P2" },
+    { "name": "숙지실 3", "supported": ["서류함", "구두발표", "1대1역할수행", "집단토론"], "capacity": 6, "zone": "P3" }
   ],
   "waiting_rooms": [
     { "name": "대기실 1", "zone": "WA" },
