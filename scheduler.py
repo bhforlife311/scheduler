@@ -270,22 +270,18 @@ def generate_sg_candidates(cfg: Config) -> list[SgCandidate]:
 
     candidates: list[SgCandidate] = []
     s_values: list[int]
-    if has_gd:
-        s_values = [s for s in range(3, N + 1) if s % 3 == 0]
-    else:
-        s_values = list(range(1, N + 1))
+    # 그룹 토론 등의 기법이 있어도 마지막 그룹은 잔여 인원으로 남을 수 있음.
+    # _try_schedule_session 에서 마지막 청크가 candidates 보다 작을 때도 처리함.
+    s_values = list(range(1, N + 1))
 
     import math
 
     for s in s_values:
         G_ceil = math.ceil(N / s)
-        if has_gd:
-            # 집단토론 포함 → 모든 그룹 ≥3명 → N % s == 0
-            if N % s != 0:
-                continue
-            G_values = [N // s]
-        else:
-            G_values = [G_ceil]
+        # 올림권 여유 적용: 마지막 그룹이 s보다 작을 수 있음 (집단토론도 마찬가지).
+        # 마지막 그룹 < tech.candidates 인 경우는 _try_schedule_session 에서 처리
+        # (예: 1명만 남으면 집단토론 1세션을 1명 + 3위원으로 진행).
+        G_values = [G_ceil]
 
         for G in G_values:
             if G < 1:
@@ -554,8 +550,6 @@ def _try_schedule_session(
     tech = next(t for t in cfg.techniques if t.name == technique_name)
 
     s = state.s
-    if tech.eval_duration_min > 0 and s % tech.candidates != 0:
-        return False  # 그룹 크기가 c로 나눠떨어져야 (예: 집단토론 s%3==0)
 
     # === 시간 계획 ===
     prep_start = start_min
@@ -588,10 +582,11 @@ def _try_schedule_session(
     chunk_assessors: list[list[int]] = []
 
     if tech.eval_duration_min > 0:
-        parallel_sessions = s // tech.candidates
         members = group.candidate_ids[:]
-        for i in range(parallel_sessions):
-            chunk = members[i * tech.candidates : (i + 1) * tech.candidates]
+        # 실제 그룹 인원 기준으로 c명씩 청크. 마지막 청크는 c보다 작을 수 있음
+        # (예: 그룹 4명 + 집단토론 c=3 → [3명, 1명]. 1명 세션도 위원 3명 배정됨).
+        for i in range(0, len(members), tech.candidates):
+            chunk = members[i : i + tech.candidates]
             if chunk:
                 cand_chunks.append(chunk)
         if not cand_chunks:
