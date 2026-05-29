@@ -1,0 +1,167 @@
+{
+  "title": "샘플 역량평가",
+  "total_candidates": 40,
+  "techniques": [
+    {
+      "name": "서류함",
+      "assessors": 1,
+      "candidates": 1,
+      "prep_duration_min": 80,
+      "eval_duration_min": 20
+    },
+    {
+      "name": "집단토론",
+      "assessors": 3,
+      "candidates": 3,
+      "prep_duration_min": 35,
+      "eval_duration_min": 30
+    }
+  ],
+  "start_time": "09:00",
+  "transition_min": 5,
+  "prep_to_eval_transition_min": 5,
+  "lunch_min": 60,
+  "lunch_window": [
+    "11:00",
+    "14:00"
+  ],
+  "assessor_mode": "universal",
+  "assessor_count_by_technique": {},
+  "rooms": [
+    {
+      "name": "평가실 1 (307호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 6,
+      "zone": "A"
+    },
+    {
+      "name": "평가실 2 (308호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 6,
+      "zone": "A"
+    },
+    {
+      "name": "평가실 3 (309호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 2,
+      "zone": "B"
+    },
+    {
+      "name": "평가실 4 (310호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 2,
+      "zone": "B"
+    },
+    {
+      "name": "평가실 5 (311호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 4,
+      "zone": "B"
+    },
+    {
+      "name": "평가실 6 (312호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 4,
+      "zone": "B"
+    },
+    {
+      "name": "평가실 7 (313호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 4,
+      "zone": "B"
+    },
+    {
+      "name": "평가실 8 (314호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 2,
+      "zone": "B"
+    },
+    {
+      "name": "평가실 9 (315호)",
+      "supported": [
+        "서류함"
+      ],
+      "capacity": 4,
+      "zone": "B"
+    },
+    {
+      "name": "집단토론실 1 (306호)",
+      "supported": [
+        "집단토론"
+      ],
+      "capacity": 12,
+      "zone": "A"
+    },
+    {
+      "name": "집단토론실 2 (320호)",
+      "supported": [
+        "집단토론"
+      ],
+      "capacity": 12,
+      "zone": "C"
+    }
+  ],
+  "prep_rooms": [
+    {
+      "name": "숙지실 1 (302호)",
+      "supported": [
+        "서류함",
+        "집단토론"
+      ],
+      "capacity": 8,
+      "zone": "A"
+    },
+    {
+      "name": "숙지실 2 (303호)",
+      "supported": [
+        "서류함",
+        "집단토론"
+      ],
+      "capacity": 8,
+      "zone": "A"
+    },
+    {
+      "name": "숙지실 3 (304호)",
+      "supported": [
+        "서류함",
+        "집단토론"
+      ],
+      "capacity": 8,
+      "zone": "A"
+    }
+  ],
+  "waiting_rooms": [
+    {
+      "name": "OT실 203호",
+      "zone": "D"
+    },
+    {
+      "name": "FT실 319호",
+      "zone": "C"
+    },
+    {
+      "name": "운영실 305호",
+      "zone": "A"
+    },
+    {
+      "name": "OT실 그대로",
+      "zone": "E"
+    }
+  ]
+}
